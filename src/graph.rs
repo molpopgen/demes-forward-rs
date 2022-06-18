@@ -1,12 +1,25 @@
+use std::fmt::Debug;
+
+use crate::DemesForwardError;
+use crate::ForwardTime;
+
 pub struct ForwardGraph {
     graph: demes::Graph,
 }
 
 impl ForwardGraph {
-    pub fn new(
+    pub fn new<F: Into<ForwardTime> + Debug>(
         graph: demes::Graph,
+        burnin_time: F,
         rounding: Option<demes::RoundTimeToInteger>,
     ) -> Result<Self, crate::DemesForwardError> {
+        let burnin_time = burnin_time.into();
+        if !burnin_time.valid() {
+            return Err(DemesForwardError::TimeError(format!(
+                "invalid time value: {:?}",
+                burnin_time
+            )));
+        }
         let graph = match rounding {
             Some(r) => graph.to_integer_generations(r)?,
             None => graph.to_generations()?,
@@ -52,18 +65,38 @@ demes:
     #[test]
     fn initialize_graph() {
         let demes_graph = two_epoch_model();
-        ForwardGraph::new(demes_graph, None).unwrap();
+        ForwardGraph::new(demes_graph, 100_u32, None).unwrap();
     }
 
     #[test]
     fn invalid_conversion_error() {
         let demes_graph = two_epoch_model_invalid_conversion_to_generations();
-        let result = ForwardGraph::new(demes_graph, Some(demes::RoundTimeToInteger::F64));
+        let result = ForwardGraph::new(demes_graph, 100.0, Some(demes::RoundTimeToInteger::F64));
         assert!(matches!(
             result,
             Err(crate::DemesForwardError::DemesError(
                 demes::DemesError::EpochError(_)
             ))
         ));
+    }
+
+    #[test]
+    fn invalid_forward_time() {
+        {
+            let x = ForwardTime::new(-1_i32);
+            assert!(!x.valid());
+        }
+        {
+            let x = ForwardTime::from(-1_f64);
+            assert!(!x.valid());
+        }
+        {
+            let x = ForwardTime::from(f64::INFINITY);
+            assert!(!x.valid());
+        }
+        {
+            let x = ForwardTime::from(f64::NAN);
+            assert!(!x.valid());
+        }
     }
 }
