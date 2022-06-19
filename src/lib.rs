@@ -4,3 +4,4 @@ mod time;
 
 pub use error::DemesForwardError;
 pub use time::ForwardTime;
+pub use time::IntoForwardTime;
