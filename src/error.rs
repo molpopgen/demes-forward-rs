@@ -4,6 +4,8 @@ use thiserror::Error;
 pub enum DemesForwardError {
     #[error("{0:?}")]
     DemesError(demes::DemesError),
+    #[error("{0:?}")]
+    TimeError(String),
 }
 
 impl From<demes::DemesError> for DemesForwardError {
