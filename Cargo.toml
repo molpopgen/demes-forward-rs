@@ -6,5 +6,5 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-demes = { version =  "~0.2", git = "https://github.com/molpopgen/demes-rs" }
+demes = { version =  ">0.2.1,<0.3.0", git = "https://github.com/molpopgen/demes-rs" }
 thiserror = "~1"
