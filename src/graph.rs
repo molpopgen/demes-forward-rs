@@ -97,6 +97,8 @@ demes:
         {
             let x = ForwardTime::from(f64::NAN);
             assert!(!x.valid());
+            let graph = two_epoch_model();
+            assert!(ForwardGraph::new(graph, x, None).is_err());
         }
     }
 }
