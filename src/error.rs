@@ -6,6 +6,10 @@ pub enum DemesForwardError {
     DemesError(demes::DemesError),
     #[error("{0:?}")]
     TimeError(String),
+    #[error("{0:?}")]
+    InvalidDemeSize(demes::DemeSize),
+    #[error("{0:?}")]
+    InternalError(String),
 }
 
 impl From<demes::DemesError> for DemesForwardError {
