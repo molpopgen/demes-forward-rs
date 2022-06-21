@@ -81,6 +81,9 @@ impl ForwardGraph {
             if backwards_time < deme.deme.start_time() {
                 let i = deme.epoch_index_for_update();
 
+                // NOTE: by having enumerate BEFORE
+                // skip, the j value is the offset
+                // from .epoch()[0]!!!
                 if let Some((j, _epoch)) = deme
                     .deme
                     .epochs()
@@ -89,8 +92,14 @@ impl ForwardGraph {
                     .skip(i)
                     .find(|index_epoch| backwards_time >= index_epoch.1.end_time())
                 {
-                    assert!(i + j < deme.deme.epochs().len(), "{} {}", i, j);
-                    deme.status = DemeStatus::During(i + j);
+                    assert!(
+                        j < deme.deme.epochs().len(),
+                        "{} {} {:?}",
+                        j,
+                        backwards_time,
+                        generation_time
+                    );
+                    deme.status = DemeStatus::During(j);
                 } else {
                     deme.status = DemeStatus::After;
                 }
@@ -284,6 +293,13 @@ demes:
         graph.update_state(151_i32).unwrap();
         assert!(graph.parental_demes().is_none());
         assert!(graph.child_demes().is_none());
+
+        // Test what happens as we "evolve through"
+        // an epoch boundary.
+        graph.update_state(99_i32).unwrap();
+        graph.update_state(100_i32).unwrap();
+        graph.update_state(101_i32).unwrap();
+        graph.update_state(102_i32).unwrap();
     }
 
     #[test]
