@@ -131,6 +131,8 @@ pub struct Deme {
     deme: demes::Deme,
     status: DemeStatus,
     backwards_time: Option<demes::Time>,
+    ancestors: Vec<usize>,
+    proportions: Vec<demes::Proportion>,
 }
 
 #[derive(Debug)]
@@ -151,6 +153,8 @@ impl Deme {
             deme,
             status: DemeStatus::Before,
             backwards_time: None,
+            ancestors: vec![],
+            proportions: vec![],
         }
     }
 
@@ -198,6 +202,14 @@ impl Deme {
             _ => Ok(None),
         }
     }
+
+    fn ancestors(&self) -> &[usize] {
+        &self.ancestors
+    }
+
+    fn proportions(&self) -> &[demes::Proportion] {
+        &self.proportions
+    }
 }
 
 pub struct ForwardGraph {
@@ -206,13 +218,16 @@ pub struct ForwardGraph {
     parent_demes: Option<Vec<Deme>>,
     child_demes: Option<Vec<Deme>>,
     last_time_updated: Option<ForwardTime>,
+    deme_to_index: std::collections::HashMap<String, usize>,
 }
 
 impl ForwardGraph {
+    // FIXME: this fn is too long.
     fn update_current_demes(
         &mut self,
         generation_time: ForwardTime,
         current_demes: &mut Vec<Deme>,
+        update_ancestors: bool,
     ) -> Result<(), DemesForwardError> {
         let backwards_time = self.model_times.convert(generation_time)?;
         if backwards_time.is_none() {
@@ -226,6 +241,8 @@ impl ForwardGraph {
         }
         let backwards_time = backwards_time.unwrap();
         for deme in current_demes {
+            deme.ancestors.clear();
+            deme.proportions.clear();
             if backwards_time < deme.deme.start_time() {
                 let i = deme.epoch_index_for_update();
 
@@ -249,6 +266,21 @@ impl ForwardGraph {
                     );
                     deme.status = DemeStatus::During(j);
                     deme.backwards_time = Some(backwards_time);
+                    if update_ancestors {
+                        let generation_to_check_ancestors =
+                            demes::Time::from(f64::from(deme.deme.start_time()) - 2.0);
+                        if backwards_time > generation_to_check_ancestors {
+                            for (name, proportion) in deme
+                                .deme
+                                .ancestor_names()
+                                .iter()
+                                .zip(deme.deme.proportions().iter())
+                            {
+                                deme.ancestors.push(*self.deme_to_index.get(name).unwrap());
+                                deme.proportions.push(*proportion);
+                            }
+                        }
+                    }
                 } else {
                     deme.status = DemeStatus::After;
                     deme.backwards_time = None;
@@ -262,9 +294,10 @@ impl ForwardGraph {
         &mut self,
         generation_time: ForwardTime,
         current_demes: Vec<Deme>,
+        update_ancestors: bool,
     ) -> Result<Option<Vec<Deme>>, DemesForwardError> {
         let mut current_demes = current_demes;
-        self.update_current_demes(generation_time, &mut current_demes)?;
+        self.update_current_demes(generation_time, &mut current_demes, update_ancestors)?;
         if current_demes.is_empty() {
             Ok(None)
         } else {
@@ -291,12 +324,17 @@ impl ForwardGraph {
         let model_times = ModelTime::new_from_graph(burnin_time, &graph)?;
         let child_demes = Option::<Vec<Deme>>::default();
         let parent_demes = Option::<Vec<Deme>>::default();
+        let mut deme_to_index = std::collections::HashMap::default();
+        for (i, deme) in graph.demes().iter().enumerate() {
+            deme_to_index.insert(deme.name().to_string(), i);
+        }
         Ok(Self {
             graph,
             model_times,
             parent_demes,
             child_demes,
             last_time_updated: None,
+            deme_to_index,
         })
     }
 
@@ -330,13 +368,11 @@ impl ForwardGraph {
             }
             None => (),
         }
-        //self.update_parental_demes(parental_generation_time)?;
         let demes = self.parent_demes.take().unwrap_or_default();
-        self.parent_demes = self.update_demes(parental_generation_time, demes)?;
+        self.parent_demes = self.update_demes(parental_generation_time, demes, false)?;
         let demes = self.child_demes.take().unwrap_or_default();
         let child_generation_time = ForwardTime::from(parental_generation_time.value() + 1.0);
-        self.child_demes = self.update_demes(child_generation_time, demes)?;
-        // self.update_child_demes(parental_generation_time)?;
+        self.child_demes = self.update_demes(child_generation_time, demes, true)?;
         self.last_time_updated = Some(parental_generation_time);
 
         Ok(())
@@ -376,23 +412,8 @@ impl ForwardGraph {
 }
 
 #[cfg(test)]
-mod graph_tests {
-    use super::*;
-
-    fn two_epoch_model() -> demes::Graph {
-        let yaml = "
-time_units: generations
-demes:
- - name: A
-   epochs:
-    - start_size: 200
-      end_time: 50
-    - start_size: 100
-";
-        demes::loads(yaml).unwrap()
-    }
-
-    fn three_deme_model() -> demes::Graph {
+mod graphs_for_testing {
+    pub fn three_deme_model() -> demes::Graph {
         let yaml = "
 time_units: generations
 demes:
@@ -407,6 +428,51 @@ demes:
  - name: C
    ancestors: [A]
    epochs:
+    - start_size: 100
+";
+        demes::loads(yaml).unwrap()
+    }
+
+    pub fn four_deme_model() -> demes::Graph {
+        let yaml = "
+time_units: generations
+demes:
+ - name: A
+   epochs:
+    - start_size: 100
+      end_time: 50
+ - name: B
+   ancestors: [A]
+   epochs:
+    - start_size: 100
+ - name: C
+   ancestors: [A]
+   epochs:
+    - start_size: 100
+      end_time: 49
+ - name: D
+   ancestors: [C, B]
+   proportions: [0.5, 0.5]
+   start_time: 49
+   epochs:
+    - start_size: 50
+";
+        demes::loads(yaml).unwrap()
+    }
+}
+
+#[cfg(test)]
+mod graph_tests {
+    use super::*;
+
+    fn two_epoch_model() -> demes::Graph {
+        let yaml = "
+time_units: generations
+demes:
+ - name: A
+   epochs:
+    - start_size: 200
+      end_time: 50
     - start_size: 100
 ";
         demes::loads(yaml).unwrap()
@@ -535,7 +601,7 @@ demes:
 
     #[test]
     fn test_three_deme_model() {
-        let demes_graph = three_deme_model();
+        let demes_graph = graphs_for_testing::three_deme_model();
         let mut g = ForwardGraph::new(demes_graph, 100, None).unwrap();
         assert!(g.parental_demes().is_none()); // Not initialized -- may break this later!
         g.update_state(0).unwrap(); // first generation of model
@@ -650,7 +716,6 @@ demes:
         } else {
             panic!();
         }
-        println!("child...");
         if let Some(deme) = graph.get_child_deme(0) {
             assert_eq!(
                 deme.current_size().unwrap(),
@@ -711,7 +776,6 @@ demes:
         } else {
             panic!();
         }
-        println!("child...");
         if let Some(deme) = graph.get_child_deme(0) {
             assert_eq!(
                 deme.current_size().unwrap(),
@@ -772,7 +836,6 @@ demes:
         } else {
             panic!();
         }
-        println!("child...");
         if let Some(deme) = graph.get_child_deme(0) {
             assert_eq!(
                 deme.current_size().unwrap(),
@@ -815,11 +878,113 @@ demes:
         for deme in graph.child_demes().unwrap().iter() {
             let g = (200_f64.ln() - 100_f64.ln()) / 49.0;
             let expected_size: f64 = 100.0 * (g * 25.0).exp();
-            println!("{} {}", g, expected_size);
             assert_eq!(
                 deme.current_size().unwrap(),
                 Some(demes::DemeSize::from(expected_size.round()))
             );
+        }
+    }
+}
+
+#[cfg(test)]
+mod test_deme_ancestors {
+    use super::*;
+
+    #[test]
+    fn test_three_deme_model() {
+        let demes_graph = graphs_for_testing::three_deme_model();
+        let mut graph =
+            ForwardGraph::new(demes_graph, 100, Some(demes::RoundTimeToInteger::F64)).unwrap();
+
+        {
+            graph.update_state(0).unwrap();
+            let deme = graph.get_parental_deme(0).unwrap();
+            assert!(deme.is_extant());
+            assert_eq!(deme.ancestors().len(), 0);
+        }
+
+        {
+            graph.update_state(100).unwrap();
+            let deme = graph.get_parental_deme(0).unwrap();
+            assert!(deme.is_extant());
+            assert_eq!(deme.ancestors().len(), 0);
+
+            for descendant_deme in [1_usize, 2] {
+                let deme = graph.get_child_deme(descendant_deme).unwrap();
+                assert!(deme.is_extant());
+                assert_eq!(deme.ancestors().len(), 1);
+                assert_eq!(deme.ancestors()[0], 0_usize);
+            }
+        }
+
+        // Runs to 149, which is last generation
+        // that has a child gen
+        for generation in 101_i32..150 {
+            graph.update_state(generation).unwrap();
+            let deme = graph.get_parental_deme(0).unwrap();
+            assert!(deme.is_after());
+            assert_eq!(deme.ancestors().len(), 0);
+
+            for descendant_deme in [1_usize, 2] {
+                let deme = graph.get_child_deme(descendant_deme).unwrap();
+                assert!(deme.is_extant());
+                assert_eq!(deme.ancestors().len(), 0);
+            }
+        }
+    }
+    #[test]
+    fn test_four_deme_model() {
+        let demes_graph = graphs_for_testing::four_deme_model();
+        let mut graph =
+            ForwardGraph::new(demes_graph, 100, Some(demes::RoundTimeToInteger::F64)).unwrap();
+        {
+            graph.update_state(100).unwrap();
+            let deme = graph.get_parental_deme(0).unwrap();
+            assert!(deme.is_extant());
+            assert_eq!(deme.ancestors().len(), 0);
+
+            for descendant_deme in [1_usize, 2] {
+                let deme = graph.get_child_deme(descendant_deme).unwrap();
+                assert!(deme.is_extant());
+                assert_eq!(deme.ancestors().len(), 1);
+                assert_eq!(deme.ancestors()[0], 0_usize);
+            }
+            let deme = graph.get_child_deme(3).unwrap();
+            assert!(deme.is_before());
+        }
+        {
+            graph.update_state(101).unwrap();
+            let deme = graph.get_parental_deme(0).unwrap();
+            assert!(deme.is_after());
+            assert_eq!(deme.ancestors().len(), 0);
+
+            for descendant_deme in [1_usize, 2] {
+                let deme = graph.get_child_deme(descendant_deme).unwrap();
+                if descendant_deme == 2 {
+                    assert!(deme.is_after());
+                } else {
+                    assert!(deme.is_extant());
+                }
+                assert_eq!(deme.ancestors().len(), 0);
+            }
+            let deme = graph.get_child_deme(3).unwrap();
+            assert!(deme.is_extant());
+            assert_eq!(deme.ancestors().len(), 2);
+            assert_eq!(deme.ancestors(), &[2, 1]);
+            assert_eq!(deme.proportions().len(), 2);
+            assert_eq!(deme.proportions(), &[0.5, 0.5]);
+
+            for ancestor in deme.ancestors() {
+                assert!(graph.get_parental_deme(*ancestor).unwrap().is_extant());
+            }
+        }
+
+        {
+            graph.update_state(102).unwrap();
+            for deme in graph.child_demes().unwrap().iter() {
+                assert!(deme.ancestors().is_empty());
+                assert!(deme.proportions().is_empty());
+            }
         }
     }
 }
