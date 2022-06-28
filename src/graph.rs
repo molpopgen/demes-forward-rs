@@ -210,101 +210,91 @@ impl Deme {
     fn proportions(&self) -> &[demes::Proportion] {
         &self.proportions
     }
+
+    fn update(
+        &mut self,
+        time: demes::Time,
+        update_ancestors: bool,
+        deme_to_index: &std::collections::HashMap<String, usize>,
+    ) -> Result<(), DemesForwardError> {
+        self.ancestors.clear();
+        self.proportions.clear();
+        if time < self.deme.start_time() {
+            let i = self.epoch_index_for_update();
+
+            // NOTE: by having enumerate BEFORE
+            // skip, the j value is the offset
+            // from .epoch()[0]!!!
+            if let Some((j, _epoch)) = self
+                .deme
+                .epochs()
+                .iter()
+                .enumerate()
+                .skip(i)
+                .find(|index_epoch| time >= index_epoch.1.end_time())
+            {
+                self.status = DemeStatus::During(j);
+                self.backwards_time = Some(time);
+                if update_ancestors {
+                    let generation_to_check_ancestors =
+                        demes::Time::from(f64::from(self.deme.start_time()) - 2.0);
+                    if time > generation_to_check_ancestors {
+                        for (name, proportion) in self
+                            .deme
+                            .ancestor_names()
+                            .iter()
+                            .zip(self.deme.proportions().iter())
+                        {
+                            self.ancestors.push(*deme_to_index.get(name).unwrap());
+                            self.proportions.push(*proportion);
+                        }
+                    }
+                }
+            } else {
+                self.status = DemeStatus::After;
+                self.backwards_time = None;
+            }
+        }
+        println!("{:?}", self);
+
+        Ok(())
+    }
+}
+
+fn update_demes(
+    backwards_time: Option<demes::Time>,
+    update_ancestors: bool,
+    deme_to_index: &std::collections::HashMap<String, usize>,
+    graph: &demes::Graph,
+    demes: &mut Vec<Deme>,
+) -> Result<(), DemesForwardError> {
+    match backwards_time {
+        Some(time) => {
+            if demes.is_empty() {
+                for deme in graph.demes().iter() {
+                    demes.push(Deme::new(deme.clone()));
+                }
+            }
+
+            demes
+                .iter_mut()
+                .try_for_each(|deme| deme.update(time, update_ancestors, deme_to_index))?
+        }
+        None => demes.clear(),
+    }
+    Ok(())
 }
 
 pub struct ForwardGraph {
     graph: demes::Graph,
     pub(crate) model_times: ModelTime, // FIXME: this should be private to this module.
-    parent_demes: Option<Vec<Deme>>,
-    child_demes: Option<Vec<Deme>>,
+    parent_demes: Vec<Deme>,
+    child_demes: Vec<Deme>,
     last_time_updated: Option<ForwardTime>,
     deme_to_index: std::collections::HashMap<String, usize>,
 }
 
 impl ForwardGraph {
-    // FIXME: this fn is too long.
-    fn update_current_demes(
-        &mut self,
-        generation_time: ForwardTime,
-        current_demes: &mut Vec<Deme>,
-        update_ancestors: bool,
-    ) -> Result<(), DemesForwardError> {
-        let backwards_time = self.model_times.convert(generation_time)?;
-        if backwards_time.is_none() {
-            current_demes.clear();
-            return Ok(());
-        }
-        if current_demes.is_empty() {
-            for deme in self.graph.demes() {
-                current_demes.push(Deme::new(deme.clone()));
-            }
-        }
-        let backwards_time = backwards_time.unwrap();
-        for deme in current_demes {
-            deme.ancestors.clear();
-            deme.proportions.clear();
-            if backwards_time < deme.deme.start_time() {
-                let i = deme.epoch_index_for_update();
-
-                // NOTE: by having enumerate BEFORE
-                // skip, the j value is the offset
-                // from .epoch()[0]!!!
-                if let Some((j, _epoch)) = deme
-                    .deme
-                    .epochs()
-                    .iter()
-                    .enumerate()
-                    .skip(i)
-                    .find(|index_epoch| backwards_time >= index_epoch.1.end_time())
-                {
-                    assert!(
-                        j < deme.deme.epochs().len(),
-                        "{} {} {:?}",
-                        j,
-                        backwards_time,
-                        generation_time
-                    );
-                    deme.status = DemeStatus::During(j);
-                    deme.backwards_time = Some(backwards_time);
-                    if update_ancestors {
-                        let generation_to_check_ancestors =
-                            demes::Time::from(f64::from(deme.deme.start_time()) - 2.0);
-                        if backwards_time > generation_to_check_ancestors {
-                            for (name, proportion) in deme
-                                .deme
-                                .ancestor_names()
-                                .iter()
-                                .zip(deme.deme.proportions().iter())
-                            {
-                                deme.ancestors.push(*self.deme_to_index.get(name).unwrap());
-                                deme.proportions.push(*proportion);
-                            }
-                        }
-                    }
-                } else {
-                    deme.status = DemeStatus::After;
-                    deme.backwards_time = None;
-                }
-            }
-        }
-        Ok(())
-    }
-
-    fn update_demes(
-        &mut self,
-        generation_time: ForwardTime,
-        current_demes: Vec<Deme>,
-        update_ancestors: bool,
-    ) -> Result<Option<Vec<Deme>>, DemesForwardError> {
-        let mut current_demes = current_demes;
-        self.update_current_demes(generation_time, &mut current_demes, update_ancestors)?;
-        if current_demes.is_empty() {
-            Ok(None)
-        } else {
-            Ok(Some(current_demes))
-        }
-    }
-
     pub fn new<F: IntoForwardTime>(
         graph: demes::Graph,
         burnin_time: F,
@@ -322,8 +312,8 @@ impl ForwardGraph {
             None => graph.to_generations()?,
         };
         let model_times = ModelTime::new_from_graph(burnin_time, &graph)?;
-        let child_demes = Option::<Vec<Deme>>::default();
-        let parent_demes = Option::<Vec<Deme>>::default();
+        let child_demes = vec![];
+        let parent_demes = vec![];
         let mut deme_to_index = std::collections::HashMap::default();
         for (i, deme) in graph.demes().iter().enumerate() {
             deme_to_index.insert(deme.name().to_string(), i);
@@ -362,17 +352,29 @@ impl ForwardGraph {
             Some(time) => {
                 if parental_generation_time < time {
                     // gotta reset...
-                    self.parent_demes = None;
-                    self.child_demes = None;
+                    self.parent_demes.clear();
+                    self.child_demes.clear();
                 }
             }
             None => (),
         }
-        let demes = self.parent_demes.take().unwrap_or_default();
-        self.parent_demes = self.update_demes(parental_generation_time, demes, false)?;
-        let demes = self.child_demes.take().unwrap_or_default();
+        let backwards_time = self.model_times.convert(parental_generation_time)?;
+        update_demes(
+            backwards_time,
+            false,
+            &self.deme_to_index,
+            &self.graph,
+            &mut self.parent_demes,
+        )?;
         let child_generation_time = ForwardTime::from(parental_generation_time.value() + 1.0);
-        self.child_demes = self.update_demes(child_generation_time, demes, true)?;
+        let backwards_time = self.model_times.convert(child_generation_time)?;
+        update_demes(
+            backwards_time,
+            true,
+            &self.deme_to_index,
+            &self.graph,
+            &mut self.child_demes,
+        )?;
         self.last_time_updated = Some(parental_generation_time);
 
         Ok(())
@@ -383,31 +385,27 @@ impl ForwardGraph {
     }
 
     pub fn parental_demes(&self) -> Option<&[Deme]> {
-        match &self.parent_demes {
-            Some(x) => Some(x.as_slice()),
-            None => None,
+        if self.parent_demes.is_empty() {
+            None
+        } else {
+            Some(&self.parent_demes)
         }
     }
 
     pub fn child_demes(&self) -> Option<&[Deme]> {
-        match &self.child_demes {
-            Some(x) => Some(x.as_slice()),
-            None => None,
+        if self.child_demes.is_empty() {
+            None
+        } else {
+            Some(&self.child_demes)
         }
     }
 
     pub fn get_parental_deme(&self, index: usize) -> Option<&Deme> {
-        match &self.parent_demes {
-            Some(demes) => demes.get(index),
-            None => None,
-        }
+        self.parent_demes.get(index)
     }
 
     pub fn get_child_deme(&self, index: usize) -> Option<&Deme> {
-        match &self.child_demes {
-            Some(demes) => demes.get(index),
-            None => None,
-        }
+        self.child_demes.get(index)
     }
 }
 
