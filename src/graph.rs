@@ -255,8 +255,6 @@ impl Deme {
                 self.backwards_time = None;
             }
         }
-        println!("{:?}", self);
-
         Ok(())
     }
 }
@@ -292,6 +290,7 @@ pub struct ForwardGraph {
     child_demes: Vec<Deme>,
     last_time_updated: Option<ForwardTime>,
     deme_to_index: std::collections::HashMap<String, usize>,
+    pulses: Vec<demes::Pulse>,
 }
 
 impl ForwardGraph {
@@ -318,6 +317,7 @@ impl ForwardGraph {
         for (i, deme) in graph.demes().iter().enumerate() {
             deme_to_index.insert(deme.name().to_string(), i);
         }
+        let pulses = vec![];
         Ok(Self {
             graph,
             model_times,
@@ -325,7 +325,20 @@ impl ForwardGraph {
             child_demes,
             last_time_updated: None,
             deme_to_index,
+            pulses,
         })
+    }
+
+    fn update_pulses(&mut self, backwards_time: Option<demes::Time>) {
+        self.pulses.clear();
+        match backwards_time {
+            None => (),
+            Some(time) => self.graph.pulses().iter().for_each(|pulse| {
+                if !(time > pulse.time() || time < pulse.time()) {
+                    self.pulses.push(pulse.clone());
+                }
+            }),
+        }
     }
 
     // NOTE: is this a birth time or a parental time?
@@ -366,6 +379,7 @@ impl ForwardGraph {
             &self.graph,
             &mut self.parent_demes,
         )?;
+        self.update_pulses(backwards_time);
         let child_generation_time = ForwardTime::from(parental_generation_time.value() + 1.0);
         let backwards_time = self.model_times.convert(child_generation_time)?;
         update_demes(
@@ -406,6 +420,14 @@ impl ForwardGraph {
 
     pub fn get_child_deme(&self, index: usize) -> Option<&Deme> {
         self.child_demes.get(index)
+    }
+
+    pub fn pulses(&self) -> &[demes::Pulse] {
+        &self.pulses
+    }
+
+    pub fn deme_index(&self, name: &str) -> Option<usize> {
+        self.deme_to_index.get(name).copied()
     }
 }
 
@@ -984,5 +1006,50 @@ mod test_deme_ancestors {
                 assert!(deme.proportions().is_empty());
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod test_pulses {
+    use super::*;
+
+    fn model_with_pulses() -> demes::Graph {
+        let yaml = "
+time_units: generations
+demes:
+ - name: A
+   epochs:
+    - start_size: 50
+ - name: B
+   epochs:
+    - start_size: 50
+pulses:
+ - sources: [A]
+   dest: B
+   time: 100
+   proportions: [0.5]
+";
+        demes::loads(yaml).unwrap()
+    }
+
+    #[test]
+    fn test_pulses() {
+        let demes_g = model_with_pulses();
+        let mut g = ForwardGraph::new(demes_g, 200., None).unwrap();
+
+        g.update_state(199).unwrap();
+        assert_eq!(g.pulses().len(), 0);
+        g.update_state(200).unwrap();
+        // At this time, the child demes
+        // will be participating in a pulse event.
+        assert_eq!(g.pulses().len(), 1);
+        for pulse in g.pulses() {
+            for source in pulse.sources() {
+                assert_eq!(g.deme_index(source), Some(0));
+            }
+            assert_eq!(g.deme_index(pulse.dest()), Some(1));
+        }
+        g.update_state(201).unwrap();
+        assert_eq!(g.pulses().len(), 0);
     }
 }
