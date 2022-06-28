@@ -291,6 +291,7 @@ pub struct ForwardGraph {
     last_time_updated: Option<ForwardTime>,
     deme_to_index: std::collections::HashMap<String, usize>,
     pulses: Vec<demes::Pulse>,
+    migrations: Vec<demes::AsymmetricMigration>,
 }
 
 impl ForwardGraph {
@@ -326,6 +327,7 @@ impl ForwardGraph {
             last_time_updated: None,
             deme_to_index,
             pulses,
+            migrations: vec![],
         })
     }
 
@@ -336,6 +338,27 @@ impl ForwardGraph {
             Some(time) => self.graph.pulses().iter().for_each(|pulse| {
                 if !(time > pulse.time() || time < pulse.time()) {
                     self.pulses.push(pulse.clone());
+                }
+            }),
+        }
+    }
+
+    // NOTE: performance here is poop emoji.
+    // Migrations tend to occur over long epochs
+    // and we are figuring this out from scratch each time.
+    // This may not be a "big deal" so this note is here in
+    // case of future profiling.
+    // Alternative:
+    // * Maintain a vec of current epochs that are (index, Mig)
+    // * Remove epochs no longer needed
+    // * Only add epochs not already there.
+    fn update_migrations(&mut self, backwards_time: Option<demes::Time>) {
+        self.migrations.clear();
+        match backwards_time {
+            None => (),
+            Some(time) => self.graph.migrations().iter().for_each(|migration| {
+                if time > migration.end_time() && time <= migration.start_time() {
+                    self.migrations.push(migration.clone());
                 }
             }),
         }
@@ -380,6 +403,7 @@ impl ForwardGraph {
             &mut self.parent_demes,
         )?;
         self.update_pulses(backwards_time);
+        self.update_migrations(backwards_time);
         let child_generation_time = ForwardTime::from(parental_generation_time.value() + 1.0);
         let backwards_time = self.model_times.convert(child_generation_time)?;
         update_demes(
@@ -424,6 +448,10 @@ impl ForwardGraph {
 
     pub fn pulses(&self) -> &[demes::Pulse] {
         &self.pulses
+    }
+
+    pub fn migrations(&self) -> &[demes::AsymmetricMigration] {
+        &self.migrations
     }
 
     pub fn deme_index(&self, name: &str) -> Option<usize> {
@@ -1051,5 +1079,67 @@ pulses:
         }
         g.update_state(201).unwrap();
         assert_eq!(g.pulses().len(), 0);
+    }
+}
+
+#[cfg(test)]
+mod test_migrations {
+    use super::*;
+    fn model_with_migrations() -> demes::Graph {
+        let yaml = "
+time_units: generations
+demes:
+ - name: A
+   epochs:
+    - start_size: 50
+ - name: B
+   epochs:
+    - start_size: 50
+migrations:
+ - source: A
+   dest: B
+   rate: 0.25
+   start_time: 50
+   end_time: 25
+ - source: B
+   dest: A
+   rate: 0.1
+   start_time: 40
+   end_time: 20
+ - demes: [A, B]
+   rate: 0.05
+   start_time: 15
+";
+        demes::loads(yaml).unwrap()
+    }
+
+    #[test]
+    fn test_migrations() {
+        let demes_g = model_with_migrations();
+        let mut g = ForwardGraph::new(demes_g, 200., None).unwrap();
+
+        // Making sure ;)
+        // g.update_state(250).unwrap();
+        // assert!(g.child_demes().is_none());
+        // assert!(g.parental_demes().is_some());
+
+        // At forward time 200, we are at the
+        // start of the first migration epoch,
+        // meaning that children born at 201 can be migrants
+        g.update_state(200).unwrap();
+        assert_eq!(g.migrations().len(), 1);
+
+        g.update_state(209).unwrap();
+        assert_eq!(g.migrations().len(), 1);
+
+        g.update_state(210).unwrap();
+        assert_eq!(g.migrations().len(), 2);
+
+        g.update_state(230).unwrap();
+        assert_eq!(g.migrations().len(), 0);
+
+        // Symmetric mig, so 2 Asymmetric deals...
+        g.update_state(235).unwrap();
+        assert_eq!(g.migrations().len(), 2);
     }
 }
