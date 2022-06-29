@@ -36,6 +36,39 @@ fn get_epoch_start_time_discrete_time_model(
     }
 }
 
+fn time_is_rounded(time: demes::Time, level: &str) -> Result<(), DemesForwardError> {
+    let f = f64::from(time);
+    if f.fract() == 0.0 || f.is_infinite() {
+        Ok(())
+    } else {
+        Err(DemesForwardError::TimeError(format!(
+            "{} not rounded to integer: {}",
+            level, time
+        )))
+    }
+}
+
+fn validate_model_times(graph: &demes::Graph) -> Result<(), DemesForwardError> {
+    graph
+        .demes()
+        .iter()
+        .try_for_each(|deme| time_is_rounded(deme.start_time(), "Deme start_time"))?;
+    graph.demes().iter().try_for_each(|deme| {
+        deme.epochs()
+            .iter()
+            .try_for_each(|epoch| time_is_rounded(epoch.end_time(), "Epoch end_time"))
+    })?;
+    graph
+        .pulses()
+        .iter()
+        .try_for_each(|pulse| time_is_rounded(pulse.time(), "Pulse time"))?;
+    graph.migrations().iter().try_for_each(|migration| {
+        time_is_rounded(migration.start_time(), "Migration start_time")?;
+        time_is_rounded(migration.end_time(), "Migration end_time")
+    })?;
+    Ok(())
+}
+
 // #[derive(Copy, Clone)]
 struct SizeFunctionDetails {
     epoch_start_time: demes::Time,
@@ -311,6 +344,9 @@ impl ForwardGraph {
             Some(r) => graph.to_integer_generations(r)?,
             None => graph.to_generations()?,
         };
+
+        validate_model_times(&graph)?;
+
         let model_times = ModelTime::new_from_graph(burnin_time, &graph)?;
         let child_demes = vec![];
         let parent_demes = vec![];
@@ -1141,5 +1177,121 @@ migrations:
         // Symmetric mig, so 2 Asymmetric deals...
         g.update_state(235).unwrap();
         assert_eq!(g.migrations().len(), 2);
+    }
+}
+
+#[cfg(test)]
+mod test_fractional_times {
+    use super::*;
+
+    fn bad_epoch_end_time() -> demes::Graph {
+        let yaml = "
+time_units: generations
+demes:
+ - name: A
+   epochs:
+    - start_size: 100
+      end_time: 10.2
+";
+        demes::loads(yaml).unwrap()
+    }
+
+    fn bad_deme_start_time() -> demes::Graph {
+        let yaml = "
+time_units: generations
+demes:
+ - name: A
+   epochs:
+    - start_size: 100
+      end_time: 10
+ - name: B
+   start_time: 50.1
+   ancestors: [A]
+   epochs:
+    - start_size: 50
+";
+        demes::loads(yaml).unwrap()
+    }
+
+    fn bad_pulse_time() -> demes::Graph {
+        let yaml = "
+time_units: generations
+demes:
+ - name: A
+   epochs:
+    - start_size: 100
+      end_time: 10
+ - name: B
+   start_time: 50
+   ancestors: [A]
+   epochs:
+    - start_size: 50
+pulses:
+ - sources: [A]
+   dest: B
+   proportions: [0.5]
+   time: 30.2
+";
+        demes::loads(yaml).unwrap()
+    }
+
+    fn bad_migration_start_time() -> demes::Graph {
+        let yaml = "
+time_units: generations
+demes:
+ - name: A
+   epochs:
+    - start_size: 100
+      end_time: 10
+ - name: B
+   start_time: 50
+   ancestors: [A]
+   epochs:
+    - start_size: 50
+migrations:
+ - source: A
+   dest: B
+   rate: 0.5
+   start_time: 30.2
+   end_time: 10
+";
+        demes::loads(yaml).unwrap()
+    }
+
+    fn bad_migration_end_time() -> demes::Graph {
+        let yaml = "
+time_units: generations
+demes:
+ - name: A
+   epochs:
+    - start_size: 100
+      end_time: 10
+ - name: B
+   start_time: 50
+   ancestors: [A]
+   epochs:
+    - start_size: 50
+migrations:
+ - source: A
+   dest: B
+   rate: 0.5
+   start_time: 30
+   end_time: 10.2
+";
+        demes::loads(yaml).unwrap()
+    }
+
+    fn run_invalid_model(f: fn() -> demes::Graph) {
+        let demes_graph = f();
+        assert!(ForwardGraph::new(demes_graph, 1, None).is_err());
+    }
+
+    #[test]
+    fn test_invalid_models() {
+        run_invalid_model(bad_epoch_end_time);
+        run_invalid_model(bad_deme_start_time);
+        run_invalid_model(bad_pulse_time);
+        run_invalid_model(bad_migration_start_time);
+        run_invalid_model(bad_migration_end_time);
     }
 }
