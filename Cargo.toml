@@ -7,4 +7,5 @@ edition = "2021"
 
 [dependencies]
 demes = { version =  ">0.2.1,<0.3.0", git = "https://github.com/molpopgen/demes-rs" }
+ndarray = "0.15.4"
 thiserror = "~1"
