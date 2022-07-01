@@ -1,5 +1,3 @@
-use std::fmt::Debug;
-
 use crate::time::ModelTime;
 use crate::DemesForwardError;
 use crate::ForwardTime;
@@ -325,6 +323,7 @@ pub struct ForwardGraph {
     deme_to_index: std::collections::HashMap<String, usize>,
     pulses: Vec<demes::Pulse>,
     migrations: Vec<demes::AsymmetricMigration>,
+    ancestry_proportions_from_pulses: ndarray::Array<f64, ndarray::Ix2>,
 }
 
 impl ForwardGraph {
@@ -355,6 +354,8 @@ impl ForwardGraph {
             deme_to_index.insert(deme.name().to_string(), i);
         }
         let pulses = vec![];
+        let ancestry_proportions_from_pulses =
+            ndarray::Array2::<f64>::zeros((deme_to_index.len(), deme_to_index.len()));
         Ok(Self {
             graph,
             model_times,
@@ -364,6 +365,7 @@ impl ForwardGraph {
             deme_to_index,
             pulses,
             migrations: vec![],
+            ancestry_proportions_from_pulses,
         })
     }
 
@@ -398,6 +400,46 @@ impl ForwardGraph {
                 }
             }),
         }
+    }
+
+    // NOTE: the borrow checker "made" us go fully functional
+    fn update_ancestry_proportions_from_pulses(&mut self) {
+        self.ancestry_proportions_from_pulses.fill(0.0);
+        for i in 0..self.child_demes.len() {
+            self.ancestry_proportions_from_pulses[[i, i]] = 1.0;
+        }
+        let mut sources = vec![];
+        let mut proportions = vec![];
+        self.pulses.iter().enumerate().for_each(|(index, pulse)| {
+            sources.clear();
+            proportions.clear();
+            let dest = *self.deme_to_index.get(pulse.dest()).unwrap();
+            if index == 0 {
+                self.ancestry_proportions_from_pulses[[dest, dest]] = 1.0;
+            }
+            let mut sum = 0.0;
+            pulse
+                .sources()
+                .iter()
+                .zip(pulse.proportions().iter())
+                .for_each(|(source, proportion)| {
+                    let index: usize = *self.deme_to_index.get(source).unwrap();
+                    sources.push(index);
+                    let p = f64::from(*proportion);
+                    sum += p;
+                    proportions.push(p);
+                });
+            self.ancestry_proportions_from_pulses
+                .row_mut(dest)
+                .iter_mut()
+                .for_each(|v| *v *= 1. - sum);
+            sources
+                .iter()
+                .zip(proportions.iter())
+                .for_each(|(source, proportion)| {
+                    self.ancestry_proportions_from_pulses[[dest, *source]] += proportion;
+                });
+        });
     }
 
     // NOTE: is this a birth time or a parental time?
@@ -449,6 +491,9 @@ impl ForwardGraph {
             &self.graph,
             &mut self.child_demes,
         )?;
+
+        self.update_ancestry_proportions_from_pulses();
+
         self.last_time_updated = Some(parental_generation_time);
 
         Ok(())
@@ -492,6 +537,12 @@ impl ForwardGraph {
 
     pub fn deme_index(&self, name: &str) -> Option<usize> {
         self.deme_to_index.get(name).copied()
+    }
+
+    fn ancestry_proportions_from_pulses(&self, destination_deme_index: usize) -> &[f64] {
+        let start = destination_deme_index * self.child_demes.len();
+        let stop = start + self.child_demes.len();
+        &self.ancestry_proportions_from_pulses.as_slice().unwrap()[start..stop]
     }
 }
 
@@ -610,6 +661,7 @@ demes:
             assert!(deme.is_extant());
         }
         assert!(graph.child_demes().is_none());
+        assert!(graph.ancestry_proportions_from_pulses(0).is_empty());
 
         // One past the last generation
         graph.update_state(151_i32).unwrap();
@@ -1293,5 +1345,111 @@ migrations:
         run_invalid_model(bad_pulse_time);
         run_invalid_model(bad_migration_start_time);
         run_invalid_model(bad_migration_end_time);
+    }
+}
+
+#[cfg(test)]
+mod test_ancestry_proportions {
+    use super::*;
+
+    fn update_ancestry_proportions(
+        sources: &[usize],
+        source_proportions: &[f64],
+        ancestry_proportions: &mut [f64],
+    ) {
+        let sum = source_proportions.iter().fold(0.0, |a, b| a + b);
+        ancestry_proportions.iter_mut().for_each(|a| *a *= 1. - sum);
+        sources
+            .iter()
+            .zip(source_proportions.iter())
+            .for_each(|(source, proportion)| ancestry_proportions[*source] += proportion);
+    }
+
+    #[test]
+    fn sequential_pulses_at_same_time_two_demes() {
+        let yaml = "
+time_units: generations
+demes:
+ - name: A
+   epochs:
+    - start_size: 1000
+ - name: B
+   epochs:
+    - start_size: 1000
+ - name: C
+   epochs:
+    - start_size: 1000
+pulses:
+- sources: [A]
+  dest: C
+  proportions: [0.33]
+  time: 10
+- sources: [B]
+  dest: C
+  proportions: [0.25]
+  time: 10
+";
+        let demes_graph = demes::loads(yaml).unwrap();
+        let mut graph = ForwardGraph::new(demes_graph, 50, None).unwrap();
+        let index_a: usize = 0;
+        let index_b: usize = 1;
+        let index_c: usize = 2;
+        let mut ancestry_proportions = vec![0.0; 3];
+        ancestry_proportions[index_c] = 1.0;
+        update_ancestry_proportions(&[index_a], &[0.33], &mut ancestry_proportions);
+        update_ancestry_proportions(&[index_b], &[0.25], &mut ancestry_proportions);
+        graph.update_state(50.0).unwrap();
+        assert_eq!(graph.pulses().len(), 2);
+        assert_eq!(graph.ancestry_proportions_from_pulses(2).len(), 3);
+        graph
+            .ancestry_proportions_from_pulses(2)
+            .iter()
+            .zip(ancestry_proportions.iter())
+            .for_each(|(a, b)| assert!((a - b).abs() <= 1e-9));
+    }
+
+    #[test]
+    fn sequential_pulses_at_same_time_two_demes_reverse_pulse_order() {
+        let yaml = "
+time_units: generations
+demes:
+ - name: A
+   epochs:
+    - start_size: 1000
+ - name: B
+   epochs:
+    - start_size: 1000
+ - name: C
+   epochs:
+    - start_size: 1000
+pulses:
+- sources: [B]
+  dest: C
+  proportions: [0.25]
+  time: 10
+- sources: [A]
+  dest: C
+  proportions: [0.33]
+  time: 10
+";
+        let demes_graph = demes::loads(yaml).unwrap();
+        let mut graph = ForwardGraph::new(demes_graph, 50, None).unwrap();
+        let index_a: usize = 0;
+        let index_b: usize = 1;
+        let index_c: usize = 2;
+        let mut ancestry_proportions = vec![0.0; 3];
+        ancestry_proportions[index_c] = 1.0;
+        update_ancestry_proportions(&[index_b], &[0.25], &mut ancestry_proportions);
+        update_ancestry_proportions(&[index_a], &[0.33], &mut ancestry_proportions);
+        graph.update_state(50.0).unwrap();
+        assert_eq!(graph.pulses().len(), 2);
+        assert_eq!(graph.ancestry_proportions_from_pulses(2).len(), 3);
+        graph
+            .ancestry_proportions_from_pulses(2)
+            .iter()
+            .zip(ancestry_proportions.iter())
+            .for_each(|(a, b)| assert!((a - b).abs() <= 1e-9, "{} {}", a, b));
+        assert_eq!(graph.ancestry_proportions_from_pulses(1), &[0., 1., 0.]);
+        assert_eq!(graph.ancestry_proportions_from_pulses(0), &[1., 0., 0.]);
     }
 }
