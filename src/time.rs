@@ -30,6 +30,7 @@ pub trait IntoForwardTime: Into<ForwardTime> + std::fmt::Debug + Copy {}
 
 impl<T> IntoForwardTime for T where T: Into<ForwardTime> + std::fmt::Debug + Copy {}
 
+#[derive(Debug)]
 pub struct ModelTime {
     model_start_time: demes::Time,
     model_duration: f64,

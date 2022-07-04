@@ -324,6 +324,7 @@ pub struct ForwardGraph {
     pulses: Vec<demes::Pulse>,
     migrations: Vec<demes::AsymmetricMigration>,
     ancestry_proportions_from_pulses: ndarray::Array<f64, ndarray::Ix2>,
+    migration_matrix: ndarray::Array<f64, ndarray::Ix2>,
 }
 
 impl ForwardGraph {
@@ -356,6 +357,8 @@ impl ForwardGraph {
         let pulses = vec![];
         let ancestry_proportions_from_pulses =
             ndarray::Array2::<f64>::zeros((deme_to_index.len(), deme_to_index.len()));
+        let migration_matrix =
+            ndarray::Array2::<f64>::zeros((deme_to_index.len(), deme_to_index.len()));
         Ok(Self {
             graph,
             model_times,
@@ -366,6 +369,7 @@ impl ForwardGraph {
             pulses,
             migrations: vec![],
             ancestry_proportions_from_pulses,
+            migration_matrix,
         })
     }
 
@@ -442,6 +446,15 @@ impl ForwardGraph {
         });
     }
 
+    fn update_migration_matrix(&mut self) {
+        self.migration_matrix.fill(0.0);
+        self.migrations.iter().for_each(|migration| {
+            let source = self.deme_to_index.get(migration.source()).unwrap();
+            let dest = self.deme_to_index.get(migration.dest()).unwrap();
+            self.migration_matrix[[*dest, *source]] = migration.rate().into();
+        });
+    }
+
     // NOTE: is this a birth time or a parental time?
     // Semantically, we want this function to:
     // * Update BOTH parental and offspring info.
@@ -493,6 +506,7 @@ impl ForwardGraph {
         )?;
 
         self.update_ancestry_proportions_from_pulses();
+        self.update_migration_matrix();
 
         self.last_time_updated = Some(parental_generation_time);
 
@@ -543,6 +557,12 @@ impl ForwardGraph {
         let start = destination_deme_index * self.child_demes.len();
         let stop = start + self.child_demes.len();
         &self.ancestry_proportions_from_pulses.as_slice().unwrap()[start..stop]
+    }
+
+    fn migration_matrix(&self, destination_deme_index: usize) -> &[f64] {
+        let start = destination_deme_index * self.child_demes.len();
+        let stop = start + self.child_demes.len();
+        &self.migration_matrix.as_slice().unwrap()[start..stop]
     }
 }
 
@@ -1451,5 +1471,76 @@ pulses:
             .for_each(|(a, b)| assert!((a - b).abs() <= 1e-9, "{} {}", a, b));
         assert_eq!(graph.ancestry_proportions_from_pulses(1), &[0., 1., 0.]);
         assert_eq!(graph.ancestry_proportions_from_pulses(0), &[1., 0., 0.]);
+    }
+}
+
+#[cfg(test)]
+mod migration_matrix {
+    use super::*;
+
+    #[test]
+    fn simple_two_way_migration() {
+        let yaml = "
+time_units: generations
+demes:
+ - name: A
+   epochs:
+    - start_size: 1000
+ - name: B
+   epochs:
+    - start_size: 1000
+ - name: C
+   epochs:
+    - start_size: 1000
+migrations:
+- source: B
+  dest: C
+  rate: 0.25
+- source: A
+  dest: C
+  rate: 0.25 
+";
+        let demes_graph = demes::loads(yaml).unwrap();
+        let mut graph = ForwardGraph::new(demes_graph, 10, None).unwrap();
+        for generation in 0..10 {
+            graph.update_state(generation).unwrap();
+            assert_eq!(graph.migration_matrix(2), &[0.25, 0.25, 0.0]);
+        }
+    }
+
+    #[test]
+    fn simple_two_way_symmetric_migration() {
+        let yaml = "
+time_units: generations
+demes:
+ - name: A
+   epochs:
+    - start_size: 1000
+ - name: B
+   epochs:
+    - start_size: 1000
+ - name: C
+   epochs:
+    - start_size: 1000
+migrations:
+- demes: [A, B, C]
+  rate: 0.25
+";
+        let demes_graph = demes::loads(yaml).unwrap();
+        let mut graph = ForwardGraph::new(demes_graph, 10, None).unwrap();
+        for generation in 0..10 {
+            graph.update_state(generation).unwrap();
+            for deme in 0..3 {
+                let mut expected = [0.25; 3];
+                expected[deme] = 0.0;
+                assert_eq!(
+                    graph.migration_matrix(deme),
+                    &expected,
+                    "{} {:?}",
+                    deme,
+                    expected
+                );
+            }
+        }
     }
 }
