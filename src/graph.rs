@@ -325,6 +325,8 @@ pub struct ForwardGraph {
     migrations: Vec<demes::AsymmetricMigration>,
     ancestry_proportions: ndarray::Array<f64, ndarray::Ix2>,
     migration_matrix: ndarray::Array<f64, ndarray::Ix2>,
+    cloning_rates: Vec<demes::CloningRate>,
+    selfing_rates: Vec<demes::SelfingRate>,
 }
 
 impl ForwardGraph {
@@ -370,6 +372,8 @@ impl ForwardGraph {
             migrations: vec![],
             ancestry_proportions,
             migration_matrix,
+            cloning_rates: vec![],
+            selfing_rates: vec![],
         })
     }
 
@@ -526,6 +530,23 @@ impl ForwardGraph {
             &mut self.child_demes,
         )?;
 
+        self.selfing_rates.clear();
+        self.cloning_rates.clear();
+        for deme in &self.child_demes {
+            match deme.status {
+                DemeStatus::During(x) => {
+                    self.cloning_rates
+                        .push(deme.deme.epochs()[x].cloning_rate());
+                    self.selfing_rates
+                        .push(deme.deme.epochs()[x].selfing_rate());
+                }
+                _ => {
+                    self.cloning_rates.push(demes::CloningRate::from(0.0));
+                    self.selfing_rates.push(demes::SelfingRate::from(0.0));
+                }
+            }
+        }
+
         self.initialize_ancestry_proportions();
         self.update_ancestry_proportions_from_pulses();
         self.update_migration_matrix();
@@ -581,6 +602,22 @@ impl ForwardGraph {
             let start = child_deme * self.child_demes.len();
             let stop = start + self.child_demes.len();
             Some(&self.ancestry_proportions.as_slice().unwrap()[start..stop])
+        } else {
+            None
+        }
+    }
+
+    fn cloning_rates(&self) -> Option<&[demes::CloningRate]> {
+        if !self.child_demes.is_empty() {
+            Some(&self.cloning_rates)
+        } else {
+            None
+        }
+    }
+
+    fn selfing_rates(&self) -> Option<&[demes::SelfingRate]> {
+        if !self.child_demes.is_empty() {
+            Some(&self.selfing_rates)
         } else {
             None
         }
@@ -1738,6 +1775,45 @@ migrations:
                     expected
                 );
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod test_cloning_selfing_rates {
+    use super::*;
+
+    #[test]
+    fn test_rate_changes() {
+        let yaml = "
+time_units: generations
+demes:
+ - name: A
+   epochs:
+    - selfing_rate: 0.5
+      end_time: 10
+      start_size: 50
+    - cloning_rate: 0.25
+";
+        let demes_graph = demes::loads(yaml).unwrap();
+        let mut graph = ForwardGraph::new(demes_graph, 10, None).unwrap();
+        graph.update_state(0.0).unwrap();
+        match graph.selfing_rates() {
+            Some(rates) => assert_eq!(rates[0], 0.5),
+            None => panic!(),
+        }
+        match graph.cloning_rates() {
+            Some(rates) => assert_eq!(rates[0], 0.0),
+            None => panic!(),
+        }
+        graph.update_state(10.0).unwrap();
+        match graph.selfing_rates() {
+            Some(rates) => assert_eq!(rates[0], 0.0),
+            None => panic!(),
+        }
+        match graph.cloning_rates() {
+            Some(rates) => assert_eq!(rates[0], 0.25),
+            None => panic!(),
         }
     }
 }
