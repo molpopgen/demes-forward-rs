@@ -189,7 +189,7 @@ impl Deme {
         }
     }
 
-    fn is_extant(&self) -> bool {
+    pub fn is_extant(&self) -> bool {
         matches!(self.status, DemeStatus::During(_))
     }
 
@@ -247,9 +247,10 @@ impl Deme {
         time: demes::Time,
         update_ancestors: bool,
         deme_to_index: &std::collections::HashMap<String, usize>,
-    ) -> Result<(), DemesForwardError> {
+    ) -> Result<demes::DemeSize, DemesForwardError> {
         self.ancestors.clear();
         self.proportions.clear();
+        let mut current_size = demes::DemeSize::from(0.0);
         if time < self.deme.start_time() {
             let i = self.epoch_index_for_update();
 
@@ -281,12 +282,14 @@ impl Deme {
                         }
                     }
                 }
+                let deme_size = self.current_size()?;
+                current_size = deme_size.unwrap();
             } else {
                 self.status = DemeStatus::After;
                 self.backwards_time = None;
             }
         }
-        Ok(())
+        Ok(current_size)
     }
 }
 
@@ -296,24 +299,32 @@ fn update_demes(
     deme_to_index: &std::collections::HashMap<String, usize>,
     graph: &demes::Graph,
     demes: &mut Vec<Deme>,
+    sizes: &mut Vec<demes::DemeSize>,
 ) -> Result<(), DemesForwardError> {
     match backwards_time {
         Some(time) => {
             if demes.is_empty() {
+                sizes.clear();
                 for deme in graph.demes().iter() {
                     demes.push(Deme::new(deme.clone()));
+                    sizes.push(demes::DemeSize::from(0.0));
                 }
             }
 
-            demes
-                .iter_mut()
-                .try_for_each(|deme| deme.update(time, update_ancestors, deme_to_index))?
+            demes.iter_mut().enumerate().try_for_each(
+                |(i, deme)| -> Result<(), DemesForwardError> {
+                    let size = deme.update(time, update_ancestors, deme_to_index)?;
+                    sizes[i] = size;
+                    Ok(())
+                },
+            )?;
         }
         None => demes.clear(),
     }
     Ok(())
 }
 
+#[derive(Debug)]
 pub struct ForwardGraph {
     graph: demes::Graph,
     pub(crate) model_times: ModelTime, // FIXME: this should be private to this module.
@@ -327,6 +338,8 @@ pub struct ForwardGraph {
     migration_matrix: ndarray::Array<f64, ndarray::Ix2>,
     cloning_rates: Vec<demes::CloningRate>,
     selfing_rates: Vec<demes::SelfingRate>,
+    parental_deme_sizes: Vec<demes::DemeSize>,
+    child_deme_sizes: Vec<demes::DemeSize>,
 }
 
 impl ForwardGraph {
@@ -374,6 +387,8 @@ impl ForwardGraph {
             migration_matrix,
             cloning_rates: vec![],
             selfing_rates: vec![],
+            parental_deme_sizes: vec![],
+            child_deme_sizes: vec![],
         })
     }
 
@@ -554,6 +569,7 @@ impl ForwardGraph {
             &self.deme_to_index,
             &self.graph,
             &mut self.parent_demes,
+            &mut self.parental_deme_sizes,
         )?;
         self.update_pulses(backwards_time);
         self.update_migrations(backwards_time);
@@ -565,6 +581,7 @@ impl ForwardGraph {
             &self.deme_to_index,
             &self.graph,
             &mut self.child_demes,
+            &mut self.child_deme_sizes,
         )?;
 
         self.selfing_rates.clear();
@@ -588,7 +605,6 @@ impl ForwardGraph {
         self.update_ancestry_proportions_from_pulses()?;
         self.update_migration_matrix()?;
         self.update_ancestry_proportions_from_migration_matrix();
-
         self.last_time_updated = Some(parental_generation_time);
 
         Ok(())
@@ -634,7 +650,7 @@ impl ForwardGraph {
         self.deme_to_index.get(name).copied()
     }
 
-    fn ancestry_proportions(&self, child_deme: usize) -> Option<&[f64]> {
+    pub fn ancestry_proportions(&self, child_deme: usize) -> Option<&[f64]> {
         if !self.child_demes.is_empty() {
             let start = child_deme * self.child_demes.len();
             let stop = start + self.child_demes.len();
@@ -644,7 +660,7 @@ impl ForwardGraph {
         }
     }
 
-    fn cloning_rates(&self) -> Option<&[demes::CloningRate]> {
+    pub fn cloning_rates(&self) -> Option<&[demes::CloningRate]> {
         if !self.child_demes.is_empty() {
             Some(&self.cloning_rates)
         } else {
@@ -652,7 +668,7 @@ impl ForwardGraph {
         }
     }
 
-    fn selfing_rates(&self) -> Option<&[demes::SelfingRate]> {
+    pub fn selfing_rates(&self) -> Option<&[demes::SelfingRate]> {
         if !self.child_demes.is_empty() {
             Some(&self.selfing_rates)
         } else {
@@ -660,15 +676,38 @@ impl ForwardGraph {
         }
     }
 
-    fn start_time(&self) -> u32 {
+    pub fn start_time(&self) -> u32 {
         0
     }
 
-    fn end_time(&self) -> u32 {
+    pub fn end_time(&self) -> u32 {
         let burnin_gen = self.model_times.burnin_generation() as u32;
         let model_duration = self.model_times.model_duration() as u32;
 
         burnin_gen + model_duration
+    }
+
+    pub fn parental_deme_size(&self, deme: usize) -> Option<demes::DemeSize> {
+        match self.parent_demes.get(deme) {
+            Some(deme) => deme.current_size().unwrap(),
+            None => None,
+        }
+    }
+
+    pub fn parental_deme_sizes(&self) -> Option<&[demes::DemeSize]> {
+        if !self.parent_demes.is_empty() {
+            Some(self.parental_deme_sizes.as_slice())
+        } else {
+            None
+        }
+    }
+
+    pub fn child_deme_sizes(&self) -> Option<&[demes::DemeSize]> {
+        if !self.child_demes.is_empty() {
+            Some(self.child_deme_sizes.as_slice())
+        } else {
+            None
+        }
     }
 }
 
