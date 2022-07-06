@@ -413,61 +413,98 @@ impl ForwardGraph {
     fn initialize_ancestry_proportions(&mut self) {
         self.ancestry_proportions.fill(0.0);
         for (i, deme) in self.child_demes.iter().enumerate() {
-            if deme.ancestors().is_empty() {
-                self.ancestry_proportions[[i, i]] = 1.0;
-            } else {
-                deme.ancestors()
-                    .iter()
-                    .zip(deme.proportions().iter())
-                    .for_each(|(ancestor, proportion)| {
-                        self.ancestry_proportions[[i, *ancestor]] = f64::from(*proportion)
-                    });
+            if deme.is_extant() {
+                if deme.ancestors().is_empty() {
+                    self.ancestry_proportions[[i, i]] = 1.0;
+                } else {
+                    deme.ancestors()
+                        .iter()
+                        .zip(deme.proportions().iter())
+                        .for_each(|(ancestor, proportion)| {
+                            self.ancestry_proportions[[i, *ancestor]] = f64::from(*proportion)
+                        });
+                }
             }
         }
     }
 
     // NOTE: the borrow checker "made" us go fully functional
-    fn update_ancestry_proportions_from_pulses(&mut self) {
+    fn update_ancestry_proportions_from_pulses(&mut self) -> Result<(), DemesForwardError> {
         let mut sources = vec![];
         let mut proportions = vec![];
-        self.pulses.iter().enumerate().for_each(|(index, pulse)| {
-            sources.clear();
-            proportions.clear();
-            let dest = *self.deme_to_index.get(pulse.dest()).unwrap();
-            let mut sum = 0.0;
-            pulse
-                .sources()
-                .iter()
-                .zip(pulse.proportions().iter())
-                .for_each(|(source, proportion)| {
-                    let index: usize = *self.deme_to_index.get(source).unwrap();
-                    sources.push(index);
-                    let p = f64::from(*proportion);
-                    sum += p;
-                    proportions.push(p);
-                });
-            self.ancestry_proportions
-                .row_mut(dest)
-                .iter_mut()
-                .for_each(|v| *v *= 1. - sum);
-            sources
-                .iter()
-                .zip(proportions.iter())
-                .for_each(|(source, proportion)| {
-                    self.ancestry_proportions[[dest, *source]] += proportion;
-                });
-        });
+        self.pulses
+            .iter()
+            .enumerate()
+            .try_for_each(|(index, pulse)| {
+                sources.clear();
+                proportions.clear();
+                let dest = *self.deme_to_index.get(pulse.dest()).unwrap();
+                if !self.child_demes[dest].is_extant() {
+                    return Err(DemesForwardError::InternalError(format!(
+                        "pulse dest deme {} is extinct",
+                        dest
+                    )));
+                }
+                let mut sum = 0.0;
+                pulse
+                    .sources()
+                    .iter()
+                    .zip(pulse.proportions().iter())
+                    .try_for_each(|(source, proportion)| {
+                        let index: usize = *self.deme_to_index.get(source).unwrap();
+                        if !self.parent_demes[index].is_extant() {
+                            return Err(DemesForwardError::InternalError(format!(
+                                "pulse source deme {} is extinct",
+                                index
+                            )));
+                        }
+                        sources.push(index);
+                        let p = f64::from(*proportion);
+                        sum += p;
+                        proportions.push(p);
+                        Ok(())
+                    })?;
+                self.ancestry_proportions
+                    .row_mut(dest)
+                    .iter_mut()
+                    .for_each(|v| *v *= 1. - sum);
+                sources
+                    .iter()
+                    .zip(proportions.iter())
+                    .for_each(|(source, proportion)| {
+                        self.ancestry_proportions[[dest, *source]] += proportion;
+                    });
+                Ok(())
+            })?;
+        Ok(())
     }
 
-    fn update_migration_matrix(&mut self) {
+    fn update_migration_matrix(&mut self) -> Result<(), DemesForwardError> {
         self.migration_matrix.fill(0.0);
-        self.migrations.iter().for_each(|migration| {
+        self.migrations.iter().try_for_each(|migration| {
             let source = self.deme_to_index.get(migration.source()).unwrap();
             let dest = self.deme_to_index.get(migration.dest()).unwrap();
+            if !self.parent_demes[*source].is_extant() {
+                return Err(DemesForwardError::InternalError(format!(
+                    "migration source deme {} is extinct",
+                    source
+                )));
+            }
+            if !self.child_demes[*dest].is_extant() {
+                return Err(DemesForwardError::InternalError(format!(
+                    "migration dest deme {} is extinct",
+                    source
+                )));
+            }
             self.migration_matrix[[*dest, *source]] = migration.rate().into();
-        });
+            Ok(())
+        })?;
+        Ok(())
     }
 
+    // NOTE: this doesn't Err b/c:
+    // It is called after update_migration_matrix, which
+    // does the extant/extinct checks already
     fn update_ancestry_proportions_from_migration_matrix(&mut self) {
         self.ancestry_proportions
             .outer_iter_mut()
@@ -548,8 +585,8 @@ impl ForwardGraph {
         }
 
         self.initialize_ancestry_proportions();
-        self.update_ancestry_proportions_from_pulses();
-        self.update_migration_matrix();
+        self.update_ancestry_proportions_from_pulses()?;
+        self.update_migration_matrix()?;
         self.update_ancestry_proportions_from_migration_matrix();
 
         self.last_time_updated = Some(parental_generation_time);
@@ -1278,6 +1315,28 @@ mod test_deme_ancestors {
         let demes_graph = graphs_for_testing::four_deme_model();
         let mut graph =
             ForwardGraph::new(demes_graph, 100, Some(demes::RoundTimeToInteger::F64)).unwrap();
+
+        {
+            graph.update_state(0).unwrap();
+            for (i, deme) in graph.child_demes().unwrap().iter().enumerate() {
+                if i < 1 {
+                    assert!(deme.is_extant());
+                    assert!(graph
+                        .ancestry_proportions(i)
+                        .unwrap()
+                        .iter()
+                        .any(|p| p > &0.0));
+                } else {
+                    assert!(deme.is_before());
+                    assert!(!graph
+                        .ancestry_proportions(i)
+                        .unwrap()
+                        .iter()
+                        .any(|p| p > &0.0));
+                }
+            }
+        }
+
         {
             graph.update_state(100).unwrap();
             let deme = graph.get_parental_deme(0).unwrap();
