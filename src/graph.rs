@@ -622,6 +622,17 @@ impl ForwardGraph {
             None
         }
     }
+
+    fn start_time(&self) -> u32 {
+        0
+    }
+
+    fn end_time(&self) -> u32 {
+        let burnin_gen = self.model_times.burnin_generation() as u32;
+        let model_duration = self.model_times.model_duration() as u32;
+
+        burnin_gen + model_duration
+    }
 }
 
 #[cfg(test)]
@@ -692,6 +703,18 @@ mod test_functions {
 
         Some(rv)
     }
+
+    pub fn test_model_duration(graph: &mut ForwardGraph) {
+        for time in graph.start_time()..graph.end_time() {
+            graph.update_state(time).unwrap();
+            assert!(graph.parental_demes().is_some(), "{}", time);
+            if time == graph.end_time() - 1 {
+                assert!(graph.child_demes().is_none(), "time = {}", time);
+            } else {
+                assert!(graph.child_demes().is_some(), "time = {}", time);
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -739,6 +762,19 @@ demes:
    start_time: 49
    epochs:
     - start_size: 50
+";
+        demes::loads(yaml).unwrap()
+    }
+
+    pub fn one_generation_model() -> demes::Graph {
+        let yaml = "
+time_units: generations
+demes:
+ - name: A
+   epochs:
+    - start_size: 50
+      end_time: 1
+    - start_size: 100
 ";
         demes::loads(yaml).unwrap()
     }
@@ -933,6 +969,24 @@ demes:
                 assert!(deme.is_after());
             } else {
                 assert!(deme.is_extant());
+            }
+        }
+    }
+
+    #[test]
+    fn test_one_generation_model() {
+        {
+            let demes_graph = graphs_for_testing::one_generation_model();
+            let mut graph = ForwardGraph::new(demes_graph, 0, None).unwrap();
+            assert_eq!(graph.end_time(), 2);
+            for i in graph.start_time()..graph.end_time() {
+                graph.update_state(i).unwrap();
+                assert!(graph.parental_demes().is_some());
+                if i == graph.end_time() - 1 {
+                    assert!(graph.child_demes().is_none(), "time = {}", i);
+                } else {
+                    assert!(graph.child_demes().is_some(), "time = {}", i);
+                }
             }
         }
     }
@@ -1167,12 +1221,13 @@ demes:
                 Some(demes::DemeSize::from(expected_size.round()))
             );
         }
+        test_functions::test_model_duration(&mut graph);
     }
 }
 
 #[cfg(test)]
 mod test_deme_ancestors {
-    use super::*;
+    use super::{test_functions::test_model_duration, *};
 
     #[test]
     fn test_three_deme_model() {
@@ -1215,7 +1270,9 @@ mod test_deme_ancestors {
                 assert_eq!(deme.ancestors().len(), 0);
             }
         }
+        test_model_duration(&mut graph);
     }
+
     #[test]
     fn test_four_deme_model() {
         let demes_graph = graphs_for_testing::four_deme_model();
@@ -1278,6 +1335,15 @@ mod test_deme_ancestors {
                 assert!(deme.proportions().is_empty());
             }
         }
+        test_model_duration(&mut graph);
+    }
+
+    #[test]
+    fn test_four_deme_model_duration() {
+        let demes_graph = graphs_for_testing::four_deme_model();
+        let mut graph =
+            ForwardGraph::new(demes_graph, 73, Some(demes::RoundTimeToInteger::F64)).unwrap();
+        test_model_duration(&mut graph);
     }
 }
 
