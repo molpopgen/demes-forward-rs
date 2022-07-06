@@ -134,6 +134,14 @@ impl ModelTime {
             burnin_generation,
         })
     }
+
+    pub(crate) fn burnin_generation(&self) -> f64 {
+        self.burnin_generation
+    }
+
+    pub(crate) fn model_duration(&self) -> f64 {
+        self.model_duration
+    }
 }
 
 // FIXME: delete at some point
