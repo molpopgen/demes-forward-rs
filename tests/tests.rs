@@ -31,12 +31,15 @@ fn iterate_all_generations(graph: &mut demes_forward::ForwardGraph) {
         match graph.child_deme_sizes() {
             Some(child_deme_sizes) => {
                 assert!(time < graph.end_time() - 1);
-                let parental_demes = graph.parental_demes().unwrap();
+                assert!(graph.any_parental_demes_extant());
+                assert!(graph.any_child_demes_extant());
                 let parental_deme_sizes = graph.parental_deme_sizes().unwrap();
                 let selfing_rates = graph.selfing_rates().unwrap();
                 let cloning_rates = graph.cloning_rates().unwrap();
-                assert_eq!(parental_demes.len(), parental_deme_sizes.len());
-                assert_eq!(parental_demes.len(), child_deme_sizes.len());
+                assert_eq!(child_deme_sizes.len(), graph.num_demes_in_model());
+                assert_eq!(parental_deme_sizes.len(), graph.num_demes_in_model());
+                assert_eq!(selfing_rates.len(), graph.num_demes_in_model());
+                assert_eq!(cloning_rates.len(), graph.num_demes_in_model());
                 for i in 0..graph.num_demes_in_model() {
                     if selfing_rates[i] > 0.0 {
                         assert!(child_deme_sizes[i] > 0.0);
@@ -60,6 +63,7 @@ fn iterate_all_generations(graph: &mut demes_forward::ForwardGraph) {
                 }
             }
             None => {
+                assert!(!graph.any_child_demes_extant());
                 assert!(graph.selfing_rates().is_none());
                 assert!(graph.cloning_rates().is_none());
                 assert!(!(time < graph.end_time() - 1));
