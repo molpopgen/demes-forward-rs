@@ -632,15 +632,19 @@ impl ForwardGraph {
         }
     }
 
-    pub fn start_time(&self) -> u32 {
-        0
+    pub fn start_time(&self) -> ForwardTime {
+        0.0.into()
     }
 
-    pub fn end_time(&self) -> u32 {
-        let burnin_gen = self.model_times.burnin_generation() as u32;
-        let model_duration = self.model_times.model_duration() as u32;
+    pub fn end_time(&self) -> ForwardTime {
+        let burnin_gen = self.model_times.burnin_generation();
+        let model_duration = self.model_times.model_duration();
 
-        burnin_gen + model_duration
+        (burnin_gen + model_duration).into()
+    }
+
+    pub fn time_iterator(&self) -> impl Iterator<Item = ForwardTime> {
+        self.model_times.time_iterator()
     }
 
     pub fn parental_deme_size(&self, deme: usize) -> Option<&demes::DemeSize> {
@@ -764,19 +768,24 @@ mod test_functions {
     }
 
     pub fn test_model_duration(graph: &mut ForwardGraph) {
-        for time in graph.start_time()..graph.end_time() {
+        for time in graph.time_iterator() {
             graph.update_state(time).unwrap();
             // assert!(graph.parental_demes().is_some(), "{}", time);
-            assert!(graph.num_extant_parental_demes() > 0);
+            assert!(
+                graph.num_extant_parental_demes() > 0,
+                "{:?} {:?}",
+                time,
+                graph.end_time()
+            );
             assert!(graph
                 .parental_deme_sizes()
                 .unwrap()
                 .iter()
                 .any(|size| size > &0.0));
-            if time == graph.end_time() - 1 {
-                assert!(graph.child_deme_sizes().is_none(), "time = {}", time);
+            if time == graph.end_time() - 1.0.into() {
+                assert!(graph.child_deme_sizes().is_none(), "time = {:?}", time);
             } else {
-                assert!(graph.child_deme_sizes().is_some(), "time = {}", time);
+                assert!(graph.child_deme_sizes().is_some(), "time = {:?}", time);
             }
         }
     }
@@ -1031,18 +1040,18 @@ demes:
         {
             let demes_graph = graphs_for_testing::one_generation_model();
             let mut graph = ForwardGraph::new(demes_graph, 0, None).unwrap();
-            assert_eq!(graph.end_time(), 2);
-            for i in graph.start_time()..graph.end_time() {
+            assert_eq!(graph.end_time(), 2.0.into());
+            for i in graph.time_iterator() {
                 graph.update_state(i).unwrap();
                 assert!(graph
                     .parental_deme_sizes()
                     .unwrap()
                     .iter()
                     .any(|size| size > &0.0));
-                if i == graph.end_time() - 1 {
-                    assert!(graph.child_deme_sizes().is_none(), "time = {}", i);
+                if i == graph.end_time() - 1.0.into() {
+                    assert!(graph.child_deme_sizes().is_none(), "time = {:?}", i);
                 } else {
-                    assert!(graph.child_deme_sizes().is_some(), "time = {}", i);
+                    assert!(graph.child_deme_sizes().is_some(), "time = {:?}", i);
                 }
             }
         }

@@ -25,12 +25,16 @@ demes:
     demes::loads(yaml).unwrap()
 }
 
-fn iterate_all_generations(graph: &mut demes_forward::ForwardGraph) {
-    for time in graph.start_time()..graph.end_time() {
+fn iterate_all_generations(
+    graph: &mut demes_forward::ForwardGraph,
+) -> Option<demes_forward::ForwardTime> {
+    let mut last_time_visited = None;
+    for time in graph.time_iterator() {
+        last_time_visited = Some(time);
         graph.update_state(time).unwrap();
         match graph.child_deme_sizes() {
             Some(child_deme_sizes) => {
-                assert!(time < graph.end_time() - 1);
+                assert!(time < graph.end_time() - 1.0.into());
                 assert!(graph.any_parental_demes_extant());
                 assert!(graph.any_child_demes_extant());
                 let parental_deme_sizes = graph.parental_deme_sizes().unwrap();
@@ -53,7 +57,7 @@ fn iterate_all_generations(graph: &mut demes_forward::ForwardGraph) {
                             assert!(parental_deme_sizes[j] > 0.0);
                             assert!(
                                 child_deme_sizes[i] > 0.0,
-                                "{}, {} => {:?}",
+                                "{:?}, {} => {:?}",
                                 time,
                                 i,
                                 child_deme_sizes
@@ -66,10 +70,11 @@ fn iterate_all_generations(graph: &mut demes_forward::ForwardGraph) {
                 assert!(!graph.any_child_demes_extant());
                 assert!(graph.selfing_rates().is_none());
                 assert!(graph.cloning_rates().is_none());
-                assert!(!(time < graph.end_time() - 1));
+                assert!(!(time < graph.end_time() - 1.0.into()));
             }
         }
     }
+    last_time_visited
 }
 
 #[test]
@@ -78,5 +83,6 @@ fn test_four_deme_model_pub_api_only() {
     let mut graph =
         demes_forward::ForwardGraph::new(demes_graph, 100, Some(demes::RoundTimeToInteger::F64))
             .unwrap();
-    iterate_all_generations(&mut graph);
+    let last_time = iterate_all_generations(&mut graph);
+    assert_eq!(last_time, Some(demes_forward::ForwardTime::from(150.0)));
 }
