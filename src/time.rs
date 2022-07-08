@@ -1,3 +1,5 @@
+use std::ops::{Add, Sub};
+
 use crate::DemesForwardError;
 
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
@@ -26,9 +28,41 @@ where
     }
 }
 
+impl Sub for ForwardTime {
+    type Output = Self;
+    fn sub(self, rhs: Self) -> Self::Output {
+        (self.0 - rhs.0).into()
+    }
+}
+
+impl Add for ForwardTime {
+    type Output = Self;
+    fn add(self, rhs: Self) -> Self::Output {
+        (self.0 + rhs.0).into()
+    }
+}
+
 pub trait IntoForwardTime: Into<ForwardTime> + std::fmt::Debug + Copy {}
 
 impl<T> IntoForwardTime for T where T: Into<ForwardTime> + std::fmt::Debug + Copy {}
+
+pub(crate) struct TimeIterator {
+    current_time: ForwardTime,
+    final_time: ForwardTime,
+}
+
+impl Iterator for TimeIterator {
+    type Item = ForwardTime;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.current_time.0 < self.final_time.0 - 1.0 {
+            self.current_time = self.current_time + 1.0.into();
+            Some(self.current_time)
+        } else {
+            None
+        }
+    }
+}
 
 #[derive(Debug)]
 pub struct ModelTime {
@@ -141,6 +175,13 @@ impl ModelTime {
 
     pub(crate) fn model_duration(&self) -> f64 {
         self.model_duration
+    }
+
+    pub(crate) fn time_iterator(&self) -> TimeIterator {
+        TimeIterator {
+            current_time: (-1.0).into(),
+            final_time: (self.burnin_generation() + self.model_duration()).into(),
+        }
     }
 }
 
