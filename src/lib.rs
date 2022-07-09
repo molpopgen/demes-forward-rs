@@ -20,7 +20,6 @@
 //! assert!(demes::loads(yaml).is_ok());
 //! ```
 
-
 mod error;
 mod graph;
 mod time;
