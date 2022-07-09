@@ -647,10 +647,6 @@ impl ForwardGraph {
         self.model_times.time_iterator()
     }
 
-    pub fn parental_deme_size(&self, deme: usize) -> Option<&demes::DemeSize> {
-        self.parental_deme_sizes.get(deme)
-    }
-
     pub fn parental_deme_sizes(&self) -> Option<&[demes::DemeSize]> {
         if !self.parent_demes.is_empty() {
             Some(self.parental_deme_sizes.as_slice())
@@ -667,15 +663,11 @@ impl ForwardGraph {
         }
     }
 
-    pub fn child_deme_size(&self, deme: usize) -> Option<&demes::DemeSize> {
-        self.child_deme_sizes.get(deme)
-    }
-
-    pub fn any_parental_demes_extant(&self) -> bool {
+    pub fn any_extant_parental_demes(&self) -> bool {
         self.parent_demes.iter().any(|deme| deme.is_extant())
     }
 
-    pub fn any_child_demes_extant(&self) -> bool {
+    pub fn any_extant_child_demes(&self) -> bool {
         self.child_demes.iter().any(|deme| deme.is_extant())
     }
 
@@ -895,14 +887,14 @@ demes:
         graph.update_state(125_i32).unwrap();
         assert_eq!(graph.num_extant_parental_demes(), 1);
         assert_eq!(
-            graph.parental_deme_size(0),
+            graph.parental_deme_sizes().unwrap().get(0),
             Some(&demes::DemeSize::from(100.0))
         );
         graph.update_state(75_i32).unwrap();
         // assert_eq!(graph.parental_demes().unwrap().iter().count(), 1);
         assert_eq!(graph.num_extant_parental_demes(), 1);
         assert_eq!(
-            graph.parental_deme_size(0),
+            graph.parental_deme_sizes().unwrap().get(0),
             Some(&demes::DemeSize::from(200.0))
         );
 
@@ -1153,11 +1145,17 @@ demes:
         graph.update_state(125).unwrap();
         let expected_size: f64 = 100. + ((49. - 25.) / (49.)) * (200. - 100.);
         let expected_size = demes::DemeSize::from(expected_size.round());
-        assert_eq!(graph.parental_deme_size(0), Some(&expected_size));
+        assert_eq!(
+            graph.parental_deme_sizes().unwrap().get(0),
+            Some(&expected_size)
+        );
 
         let expected_size: f64 = 100. + ((49. - 24.) / (49.)) * (200. - 100.);
         let expected_size = demes::DemeSize::from(expected_size.round());
-        assert_eq!(graph.child_deme_size(0), Some(&expected_size));
+        assert_eq!(
+            graph.child_deme_sizes().unwrap().get(0),
+            Some(&expected_size)
+        );
     }
 
     #[test]
@@ -1207,10 +1205,16 @@ demes:
         let expected_size: demes::DemeSize = (200_f64 + ((49. - 25.) / (49.)) * (100. - 200.))
             .round()
             .into();
-        assert_eq!(graph.parental_deme_size(0), Some(&expected_size));
+        assert_eq!(
+            graph.parental_deme_sizes().unwrap().get(0),
+            Some(&expected_size)
+        );
         let expected_size =
             demes::DemeSize::from((200_f64 + ((49. - 24.) / (49.)) * (100. - 200.)).round());
-        assert_eq!(graph.child_deme_size(0), Some(&expected_size));
+        assert_eq!(
+            graph.child_deme_sizes().unwrap().get(0),
+            Some(&expected_size)
+        );
     }
 
     #[test]
@@ -1259,10 +1263,16 @@ demes:
         graph.update_state(125).unwrap();
         let g = (200_f64.ln() - 100_f64.ln()) / 49.0;
         let expected_size = demes::DemeSize::from((100.0 * (g * 24.0).exp()).round());
-        assert_eq!(graph.parental_deme_size(0), Some(&expected_size));
+        assert_eq!(
+            graph.parental_deme_sizes().unwrap().get(0),
+            Some(&expected_size)
+        );
         let g = (200_f64.ln() - 100_f64.ln()) / 49.0;
         let expected_size = demes::DemeSize::from((100.0 * (g * 25.0).exp()).round());
-        assert_eq!(graph.child_deme_size(0), Some(&expected_size));
+        assert_eq!(
+            graph.child_deme_sizes().unwrap().get(0),
+            Some(&expected_size)
+        );
         test_functions::test_model_duration(&mut graph);
     }
 }
@@ -1360,7 +1370,6 @@ mod test_deme_ancestors {
                     None => panic!("expected Some(ancestry)"),
                 }
             }
-            let deme = graph.child_demes.get(3).unwrap();
         }
         {
             graph.update_state(101).unwrap();
@@ -1370,7 +1379,10 @@ mod test_deme_ancestors {
             for descendant_deme in [1_usize, 2] {
                 let deme = graph.child_demes.get(descendant_deme).unwrap();
                 if descendant_deme == 2 {
-                    assert_eq!(graph.child_deme_size(2), Some(&demes::DemeSize::from(0.0)));
+                    assert_eq!(
+                        graph.child_deme_sizes().unwrap().get(2),
+                        Some(&demes::DemeSize::from(0.0))
+                    );
                 } else {
                     assert!(deme.is_extant());
                 }

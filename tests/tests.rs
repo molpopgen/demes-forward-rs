@@ -37,8 +37,8 @@ fn iterate_all_generations(
         match graph.child_deme_sizes() {
             Some(child_deme_sizes) => {
                 assert!(time < graph.end_time() - 1.0.into());
-                assert!(graph.any_parental_demes_extant());
-                assert!(graph.any_child_demes_extant());
+                assert!(graph.any_extant_parental_demes());
+                assert!(graph.any_extant_child_demes());
                 let parental_deme_sizes = graph.parental_deme_sizes().unwrap();
                 let selfing_rates = graph.selfing_rates().unwrap();
                 let cloning_rates = graph.cloning_rates().unwrap();
@@ -69,7 +69,7 @@ fn iterate_all_generations(
                 }
             }
             None => {
-                assert!(!graph.any_child_demes_extant());
+                assert!(!graph.any_extant_child_demes());
                 assert!(graph.selfing_rates().is_none());
                 assert!(graph.cloning_rates().is_none());
                 assert!(!(time < graph.end_time() - 1.0.into()));
