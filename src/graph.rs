@@ -3,6 +3,11 @@ use crate::DemesForwardError;
 use crate::ForwardTime;
 use crate::IntoForwardTime;
 
+enum Generation {
+    Parent,
+    Child,
+}
+
 fn time_minus_1(time: demes::Time) -> demes::Time {
     demes::Time::from(f64::from(time) - 1.0)
 }
@@ -524,6 +529,36 @@ impl ForwardGraph {
                 })
             });
     }
+
+    fn deme_slice(&self, generation: Generation) -> &[Deme] {
+        match generation {
+            Generation::Parent => self.parent_demes.as_slice(),
+            Generation::Child => self.child_demes.as_slice(),
+        }
+    }
+
+    fn any_extant_demes(&self, generation: Generation) -> bool {
+        let s = self.deme_slice(generation);
+        s.iter().any(|deme| deme.is_extant())
+    }
+
+    fn num_extant_demes(&self, generation: Generation) -> usize {
+        let s = self.deme_slice(generation);
+        s.iter().filter(|deme| deme.is_extant()).count()
+    }
+
+    fn get_slice_if<'a, T: Sized>(&'a self, generation: Generation, s: &'a [T]) -> Option<&[T]> {
+        let is_empty = match generation {
+            Generation::Parent => self.parent_demes.is_empty(),
+            Generation::Child => self.child_demes.is_empty(),
+        };
+        if !is_empty {
+            Some(s)
+        } else {
+            None
+        }
+    }
+
     // NOTE: is this a birth time or a parental time?
     // Semantically, we want this function to:
     // * Update BOTH parental and offspring info.
@@ -617,19 +652,11 @@ impl ForwardGraph {
     }
 
     pub fn cloning_rates(&self) -> Option<&[demes::CloningRate]> {
-        if !self.child_demes.is_empty() {
-            Some(&self.cloning_rates)
-        } else {
-            None
-        }
+        self.get_slice_if(Generation::Child, self.cloning_rates.as_slice())
     }
 
     pub fn selfing_rates(&self) -> Option<&[demes::SelfingRate]> {
-        if !self.child_demes.is_empty() {
-            Some(&self.selfing_rates)
-        } else {
-            None
-        }
+        self.get_slice_if(Generation::Child, self.selfing_rates.as_slice())
     }
 
     pub fn start_time(&self) -> ForwardTime {
@@ -648,41 +675,27 @@ impl ForwardGraph {
     }
 
     pub fn parental_deme_sizes(&self) -> Option<&[demes::DemeSize]> {
-        if !self.parent_demes.is_empty() {
-            Some(self.parental_deme_sizes.as_slice())
-        } else {
-            None
-        }
+        self.get_slice_if(Generation::Parent, self.parental_deme_sizes.as_slice())
     }
 
     pub fn child_deme_sizes(&self) -> Option<&[demes::DemeSize]> {
-        if !self.child_demes.is_empty() {
-            Some(self.child_deme_sizes.as_slice())
-        } else {
-            None
-        }
+        self.get_slice_if(Generation::Child, self.child_deme_sizes.as_slice())
     }
 
     pub fn any_extant_parental_demes(&self) -> bool {
-        self.parent_demes.iter().any(|deme| deme.is_extant())
+        self.any_extant_demes(Generation::Parent)
     }
 
     pub fn any_extant_child_demes(&self) -> bool {
-        self.child_demes.iter().any(|deme| deme.is_extant())
+        self.any_extant_demes(Generation::Child)
     }
 
     pub fn num_extant_parental_demes(&self) -> usize {
-        self.parent_demes
-            .iter()
-            .filter(|deme| deme.is_extant())
-            .count()
+        self.num_extant_demes(Generation::Parent)
     }
 
     pub fn num_extant_child_demes(&self) -> usize {
-        self.child_demes
-            .iter()
-            .filter(|deme| deme.is_extant())
-            .count()
+        self.num_extant_demes(Generation::Child)
     }
 }
 
