@@ -1,3 +1,5 @@
+use demes_forward::demes;
+
 pub fn four_deme_model() -> demes::Graph {
     let yaml = "
 time_units: generations
