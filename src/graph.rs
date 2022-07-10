@@ -444,50 +444,47 @@ impl ForwardGraph {
     fn update_ancestry_proportions_from_pulses(&mut self) -> Result<(), DemesForwardError> {
         let mut sources = vec![];
         let mut proportions = vec![];
-        self.pulses
-            .iter()
-            .enumerate()
-            .try_for_each(|(index, pulse)| {
-                sources.clear();
-                proportions.clear();
-                let dest = *self.deme_to_index.get(pulse.dest()).unwrap();
-                if !self.child_demes[dest].is_extant() {
-                    return Err(DemesForwardError::InternalError(format!(
-                        "pulse dest deme {} is extinct",
-                        dest
-                    )));
-                }
-                let mut sum = 0.0;
-                pulse
-                    .sources()
-                    .iter()
-                    .zip(pulse.proportions().iter())
-                    .try_for_each(|(source, proportion)| {
-                        let index: usize = *self.deme_to_index.get(source).unwrap();
-                        if !self.parent_demes[index].is_extant() {
-                            return Err(DemesForwardError::InternalError(format!(
-                                "pulse source deme {} is extinct",
-                                index
-                            )));
-                        }
-                        sources.push(index);
-                        let p = f64::from(*proportion);
-                        sum += p;
-                        proportions.push(p);
-                        Ok(())
-                    })?;
-                self.ancestry_proportions
-                    .row_mut(dest)
-                    .iter_mut()
-                    .for_each(|v| *v *= 1. - sum);
-                sources
-                    .iter()
-                    .zip(proportions.iter())
-                    .for_each(|(source, proportion)| {
-                        self.ancestry_proportions[[dest, *source]] += proportion;
-                    });
-                Ok(())
-            })?;
+        self.pulses.iter().try_for_each(|pulse| {
+            sources.clear();
+            proportions.clear();
+            let dest = *self.deme_to_index.get(pulse.dest()).unwrap();
+            if !self.child_demes[dest].is_extant() {
+                return Err(DemesForwardError::InternalError(format!(
+                    "pulse dest deme {} is extinct",
+                    dest
+                )));
+            }
+            let mut sum = 0.0;
+            pulse
+                .sources()
+                .iter()
+                .zip(pulse.proportions().iter())
+                .try_for_each(|(source, proportion)| {
+                    let index: usize = *self.deme_to_index.get(source).unwrap();
+                    if !self.parent_demes[index].is_extant() {
+                        return Err(DemesForwardError::InternalError(format!(
+                            "pulse source deme {} is extinct",
+                            index
+                        )));
+                    }
+                    sources.push(index);
+                    let p = f64::from(*proportion);
+                    sum += p;
+                    proportions.push(p);
+                    Ok(())
+                })?;
+            self.ancestry_proportions
+                .row_mut(dest)
+                .iter_mut()
+                .for_each(|v| *v *= 1. - sum);
+            sources
+                .iter()
+                .zip(proportions.iter())
+                .for_each(|(source, proportion)| {
+                    self.ancestry_proportions[[dest, *source]] += proportion;
+                });
+            Ok(())
+        })?;
         Ok(())
     }
 
@@ -1003,7 +1000,7 @@ demes:
             if i == 0 {
                 assert!(size > &0.0);
             } else {
-                assert!(!(size > &0.0));
+                assert!(size <= &0.0);
             }
         }
 
@@ -1012,12 +1009,12 @@ demes:
             if i == 0 {
                 assert!(size > &0.0);
             } else {
-                assert!(!(size > &0.0));
+                assert!(size <= &0.0);
             }
         }
         for (i, size) in g.child_deme_sizes().unwrap().iter().enumerate() {
             if i == 0 {
-                assert!(!(size > &0.0));
+                assert!(size <= &0.0);
             } else {
                 assert!(size > &0.0);
             }
@@ -1026,14 +1023,14 @@ demes:
         g.update_state(101).unwrap(); // Last generation of ancestor deme
         for (i, size) in g.parental_deme_sizes().unwrap().iter().enumerate() {
             if i == 0 {
-                assert!(!(size > &0.0));
+                assert!(size <= &0.0);
             } else {
                 assert!(size > &0.0);
             }
         }
         for (i, size) in g.child_deme_sizes().unwrap().iter().enumerate() {
             if i == 0 {
-                assert!(!(size > &0.0));
+                assert!(size <= &0.0);
             } else {
                 assert!(size > &0.0);
             }
