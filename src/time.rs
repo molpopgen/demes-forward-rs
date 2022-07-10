@@ -66,6 +66,7 @@ impl Iterator for TimeIterator {
 
 #[derive(Debug)]
 pub struct ModelTime {
+    #[allow(dead_code)]
     model_start_time: demes::Time,
     model_duration: f64,
     burnin_generation: f64,
@@ -94,7 +95,6 @@ fn get_model_start_time(graph: &demes::Graph) -> demes::Time {
         .filter(|deme| deme.start_time() == f64::INFINITY)
         .map(|deme| deme.epochs()[0].end_time())
         .collect::<Vec<_>>();
-    // NOTE: ends.is_empty() is an Error here!!!
 
     // start times of all demes whose start time is not infinity
     times.extend(
@@ -135,16 +135,7 @@ impl ModelTime {
     ) -> Result<Self, crate::DemesForwardError> {
         // The logic here is lifted from the fwdpy11
         // demes import code by Aaron Ragsdale.
-        let most_ancient_deme_start = graph
-            .demes()
-            .iter()
-            .map(|deme| deme.start_time())
-            .collect::<Vec<_>>()
-            .into_iter()
-            .max()
-            .unwrap();
 
-        // Thus MUST be true!
         let model_start_time = get_model_start_time(graph);
 
         let most_recent_deme_end = graph

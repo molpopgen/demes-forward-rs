@@ -80,7 +80,7 @@ fn iterate_all_generations(graph: &mut demes_forward::ForwardGraph) -> ModelFirs
                 assert!(!graph.any_extant_child_demes());
                 assert!(graph.selfing_rates().is_none());
                 assert!(graph.cloning_rates().is_none());
-                assert!(!(time < graph.end_time() - 1.0.into()));
+                assert!(time <= graph.end_time() - 1.0.into());
             }
         }
     }
