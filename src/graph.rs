@@ -671,7 +671,7 @@ impl ForwardGraph {
     }
 
     pub fn time_iterator(&self) -> impl Iterator<Item = ForwardTime> {
-        self.model_times.time_iterator()
+        self.model_times.time_iterator(self.last_time_updated)
     }
 
     pub fn parental_deme_sizes(&self) -> Option<&[demes::DemeSize]> {

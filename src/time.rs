@@ -177,9 +177,13 @@ impl ModelTime {
         self.model_duration
     }
 
-    pub(crate) fn time_iterator(&self) -> TimeIterator {
+    pub(crate) fn time_iterator(&self, start: Option<ForwardTime>) -> TimeIterator {
+        let current_time = match start {
+            Some(value) => (value.0 - 1.0).into(),
+            None => (-1.0).into(),
+        };
         TimeIterator {
-            current_time: (-1.0).into(),
+            current_time,
             final_time: (self.burnin_generation() + self.model_duration()).into(),
         }
     }

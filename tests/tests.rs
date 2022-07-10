@@ -1,5 +1,10 @@
 use demes_forward::demes;
 
+struct ModelFirstLast {
+    first: Option<demes_forward::ForwardTime>,
+    last: Option<demes_forward::ForwardTime>,
+}
+
 pub fn four_deme_model() -> demes::Graph {
     let yaml = "
 time_units: generations
@@ -27,11 +32,14 @@ demes:
     demes::loads(yaml).unwrap()
 }
 
-fn iterate_all_generations(
-    graph: &mut demes_forward::ForwardGraph,
-) -> Option<demes_forward::ForwardTime> {
+fn iterate_all_generations(graph: &mut demes_forward::ForwardGraph) -> ModelFirstLast {
+    let mut first_time_visited = None;
     let mut last_time_visited = None;
     for time in graph.time_iterator() {
+        match first_time_visited {
+            None => first_time_visited = Some(time),
+            Some(_) => (),
+        }
         last_time_visited = Some(time);
         graph.update_state(time).unwrap();
         match graph.child_deme_sizes() {
@@ -76,7 +84,10 @@ fn iterate_all_generations(
             }
         }
     }
-    last_time_visited
+    ModelFirstLast {
+        first: first_time_visited,
+        last: last_time_visited,
+    }
 }
 
 #[test]
@@ -86,5 +97,24 @@ fn test_four_deme_model_pub_api_only() {
         demes_forward::ForwardGraph::new(demes_graph, 100, Some(demes::RoundTimeToInteger::F64))
             .unwrap();
     let last_time = iterate_all_generations(&mut graph);
-    assert_eq!(last_time, Some(demes_forward::ForwardTime::from(150.0)));
+    assert_eq!(
+        last_time.last,
+        Some(demes_forward::ForwardTime::from(150.0))
+    );
+    assert_eq!(last_time.first, Some(demes_forward::ForwardTime::from(0.0)));
+}
+
+#[test]
+fn test_four_deme_model_pub_api_only_start_after_zero() {
+    let demes_graph = four_deme_model();
+    let mut graph =
+        demes_forward::ForwardGraph::new(demes_graph, 100, Some(demes::RoundTimeToInteger::F64))
+            .unwrap();
+    graph.update_state(50.0).unwrap();
+    let last_time = iterate_all_generations(&mut graph);
+    assert_eq!(
+        last_time.last,
+        Some(demes_forward::ForwardTime::from(150.0))
+    );
+    assert_eq!(last_time.first, Some(demes_forward::ForwardTime::from(50.0)));
 }
