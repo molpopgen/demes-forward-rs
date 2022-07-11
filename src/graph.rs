@@ -656,10 +656,6 @@ impl ForwardGraph {
         self.get_slice_if(Generation::Child, self.selfing_rates.as_slice())
     }
 
-    pub fn start_time(&self) -> ForwardTime {
-        0.0.into()
-    }
-
     pub fn end_time(&self) -> ForwardTime {
         let burnin_gen = self.model_times.burnin_generation();
         let model_duration = self.model_times.model_duration();
