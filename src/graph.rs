@@ -656,8 +656,8 @@ impl ForwardGraph {
         self.get_slice_if(Generation::Child, self.selfing_rates.as_slice())
     }
 
-    pub fn start_time(&self) -> ForwardTime {
-        0.0.into()
+    pub fn last_time_updated(&self) -> Option<ForwardTime> {
+        self.last_time_updated
     }
 
     pub fn end_time(&self) -> ForwardTime {

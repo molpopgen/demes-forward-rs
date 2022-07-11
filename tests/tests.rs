@@ -40,8 +40,12 @@ fn iterate_all_generations(graph: &mut demes_forward::ForwardGraph) -> ModelFirs
             None => first_time_visited = Some(time),
             Some(_) => (),
         }
+        if time == demes_forward::ForwardTime::from(0.0) {
+            assert!(graph.last_time_updated().is_none());
+        }
         last_time_visited = Some(time);
         graph.update_state(time).unwrap();
+        assert_eq!(graph.last_time_updated(), Some(time));
         match graph.child_deme_sizes() {
             Some(child_deme_sizes) => {
                 assert!(time < graph.end_time() - 1.0.into());
@@ -116,5 +120,8 @@ fn test_four_deme_model_pub_api_only_start_after_zero() {
         last_time.last,
         Some(demes_forward::ForwardTime::from(150.0))
     );
-    assert_eq!(last_time.first, Some(demes_forward::ForwardTime::from(50.0)));
+    assert_eq!(
+        last_time.first,
+        Some(demes_forward::ForwardTime::from(50.0))
+    );
 }
