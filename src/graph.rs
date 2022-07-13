@@ -576,6 +576,14 @@ impl ForwardGraph {
         parental_generation_time: F,
     ) -> Result<(), DemesForwardError> {
         let parental_generation_time = parental_generation_time.into();
+        if parental_generation_time.value().is_sign_negative()
+            || !parental_generation_time.value().is_finite()
+        {
+            return Err(DemesForwardError::TimeError(format!(
+                "invalid time for update_state: {}",
+                parental_generation_time.value()
+            )));
+        }
         match self.last_time_updated {
             Some(time) => {
                 if parental_generation_time < time {
@@ -874,6 +882,8 @@ demes:
     fn one_deme_two_epochs() {
         let demes_graph = two_epoch_model();
         let mut graph = ForwardGraph::new(demes_graph, 100_u32, None).unwrap();
+        assert!(graph.update_state(-1.0).is_err());
+        assert!(graph.update_state(f64::INFINITY).is_err());
         graph.update_state(125_i32).unwrap();
         assert_eq!(graph.num_extant_parental_demes(), 1);
         assert_eq!(
