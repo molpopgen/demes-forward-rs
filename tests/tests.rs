@@ -46,11 +46,11 @@ fn iterate_all_generations(graph: &mut demes_forward::ForwardGraph) -> ModelFirs
         last_time_visited = Some(time);
         graph.update_state(time).unwrap();
         assert_eq!(graph.last_time_updated(), Some(time));
-        match graph.child_deme_sizes() {
+        match graph.offspring_deme_sizes() {
             Some(child_deme_sizes) => {
                 assert!(time < graph.end_time() - 1.0.into());
                 assert!(graph.any_extant_parental_demes());
-                assert!(graph.any_extant_child_demes());
+                assert!(graph.any_extant_offspring_demes());
                 let parental_deme_sizes = graph.parental_deme_sizes().unwrap();
                 let selfing_rates = graph.selfing_rates().unwrap();
                 let cloning_rates = graph.cloning_rates().unwrap();
@@ -81,7 +81,7 @@ fn iterate_all_generations(graph: &mut demes_forward::ForwardGraph) -> ModelFirs
                 }
             }
             None => {
-                assert!(!graph.any_extant_child_demes());
+                assert!(!graph.any_extant_offspring_demes());
                 assert!(graph.selfing_rates().is_none());
                 assert!(graph.cloning_rates().is_none());
                 assert!(time <= graph.end_time() - 1.0.into());

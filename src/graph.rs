@@ -675,7 +675,7 @@ impl ForwardGraph {
         self.get_slice_if(Generation::Parent, self.parental_deme_sizes.as_slice())
     }
 
-    pub fn child_deme_sizes(&self) -> Option<&[demes::DemeSize]> {
+    pub fn offspring_deme_sizes(&self) -> Option<&[demes::DemeSize]> {
         self.get_slice_if(Generation::Child, self.child_deme_sizes.as_slice())
     }
 
@@ -683,7 +683,7 @@ impl ForwardGraph {
         self.any_extant_demes(Generation::Parent)
     }
 
-    pub fn any_extant_child_demes(&self) -> bool {
+    pub fn any_extant_offspring_demes(&self) -> bool {
         self.any_extant_demes(Generation::Child)
     }
 
@@ -691,7 +691,7 @@ impl ForwardGraph {
         self.num_extant_demes(Generation::Parent)
     }
 
-    pub fn num_extant_child_demes(&self) -> usize {
+    pub fn num_extant_offspring_demes(&self) -> usize {
         self.num_extant_demes(Generation::Child)
     }
 }
@@ -718,9 +718,9 @@ mod test_functions {
         graph: &ForwardGraph,
         child_deme: usize,
     ) -> Option<Vec<f64>> {
-        graph.child_deme_sizes()?;
+        graph.offspring_deme_sizes()?;
 
-        let mut rv = vec![0.0; graph.child_deme_sizes().unwrap().len()];
+        let mut rv = vec![0.0; graph.offspring_deme_sizes().unwrap().len()];
 
         let deme = graph.child_demes.get(child_deme).unwrap();
 
@@ -785,9 +785,9 @@ mod test_functions {
                 .iter()
                 .any(|size| size > &0.0));
             if time == graph.end_time() - 1.0.into() {
-                assert!(graph.child_deme_sizes().is_none(), "time = {:?}", time);
+                assert!(graph.offspring_deme_sizes().is_none(), "time = {:?}", time);
             } else {
-                assert!(graph.child_deme_sizes().is_some(), "time = {:?}", time);
+                assert!(graph.offspring_deme_sizes().is_some(), "time = {:?}", time);
             }
         }
     }
@@ -891,15 +891,15 @@ demes:
         // The last generation
         graph.update_state(150_i32).unwrap();
         assert_eq!(graph.num_extant_parental_demes(), 1);
-        assert_eq!(graph.num_extant_child_demes(), 0);
+        assert_eq!(graph.num_extant_offspring_demes(), 0);
         assert!(graph.ancestry_proportions(0).is_none());
 
         // One past the last generation
         graph.update_state(151_i32).unwrap();
         //assert!(graph.parental_demes().is_none());
         assert_eq!(graph.num_extant_parental_demes(), 0);
-        assert_eq!(graph.num_extant_child_demes(), 0);
-        assert!(graph.child_deme_sizes().is_none());
+        assert_eq!(graph.num_extant_offspring_demes(), 0);
+        assert!(graph.offspring_deme_sizes().is_none());
 
         // Test what happens as we "evolve through"
         // an epoch boundary.
@@ -923,7 +923,7 @@ demes:
                 .all(|size| size == &expected.0));
 
             assert!(graph
-                .child_deme_sizes()
+                .offspring_deme_sizes()
                 .unwrap()
                 .iter()
                 .all(|size| size == &expected.1));
@@ -978,9 +978,9 @@ demes:
                     .iter()
                     .any(|size| size > &0.0));
                 if i == graph.end_time() - 1.0.into() {
-                    assert!(graph.child_deme_sizes().is_none(), "time = {:?}", i);
+                    assert!(graph.offspring_deme_sizes().is_none(), "time = {:?}", i);
                 } else {
-                    assert!(graph.child_deme_sizes().is_some(), "time = {:?}", i);
+                    assert!(graph.offspring_deme_sizes().is_some(), "time = {:?}", i);
                 }
             }
         }
@@ -1090,7 +1090,7 @@ demes:
         let expected_size: f64 = 100. + ((49. - 24.) / (49.)) * (200. - 100.);
         let expected_size = demes::DemeSize::from(expected_size.round());
         assert_eq!(
-            graph.child_deme_sizes().unwrap().get(0),
+            graph.offspring_deme_sizes().unwrap().get(0),
             Some(&expected_size)
         );
     }
@@ -1149,7 +1149,7 @@ demes:
         let expected_size =
             demes::DemeSize::from((200_f64 + ((49. - 24.) / (49.)) * (100. - 200.)).round());
         assert_eq!(
-            graph.child_deme_sizes().unwrap().get(0),
+            graph.offspring_deme_sizes().unwrap().get(0),
             Some(&expected_size)
         );
     }
@@ -1207,7 +1207,7 @@ demes:
         let g = (200_f64.ln() - 100_f64.ln()) / 49.0;
         let expected_size = demes::DemeSize::from((100.0 * (g * 25.0).exp()).round());
         assert_eq!(
-            graph.child_deme_sizes().unwrap().get(0),
+            graph.offspring_deme_sizes().unwrap().get(0),
             Some(&expected_size)
         );
         test_functions::test_model_duration(&mut graph);
@@ -1274,7 +1274,7 @@ mod test_deme_ancestors {
                 let deme = graph.child_demes.get(descendant_deme).unwrap();
                 if descendant_deme == 2 {
                     assert_eq!(
-                        graph.child_deme_sizes().unwrap().get(2),
+                        graph.offspring_deme_sizes().unwrap().get(2),
                         Some(&demes::DemeSize::from(0.0))
                     );
                 } else {
