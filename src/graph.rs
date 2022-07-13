@@ -795,26 +795,6 @@ mod test_functions {
 
 #[cfg(test)]
 mod graphs_for_testing {
-    pub fn three_deme_model() -> demes::Graph {
-        let yaml = "
-time_units: generations
-demes:
- - name: A
-   epochs:
-    - start_size: 100
-      end_time: 50
- - name: B
-   ancestors: [A]
-   epochs:
-    - start_size: 100
- - name: C
-   ancestors: [A]
-   epochs:
-    - start_size: 100
-";
-        demes::loads(yaml).unwrap()
-    }
-
     pub fn four_deme_model() -> demes::Graph {
         let yaml = "
 time_units: generations
@@ -981,59 +961,6 @@ demes:
             assert!(!x.valid());
             let graph = two_epoch_model();
             assert!(ForwardGraph::new(graph, x, None).is_err());
-        }
-    }
-
-    #[test]
-    fn test_three_deme_model() {
-        let demes_graph = graphs_for_testing::three_deme_model();
-        let mut g = ForwardGraph::new(demes_graph, 100, None).unwrap();
-        g.update_state(0).unwrap(); // first generation of model
-        assert!(g
-            .parental_deme_sizes()
-            .unwrap()
-            .iter()
-            .any(|size| size > &0.0));
-        assert_eq!(g.num_demes_in_model(), 3); // There are 3 demes in the model
-        assert_eq!(g.parental_deme_sizes().unwrap().len(), 3); // There are 3 demes in the model
-        for (i, size) in g.parental_deme_sizes().unwrap().iter().enumerate() {
-            if i == 0 {
-                assert!(size > &0.0);
-            } else {
-                assert!(size <= &0.0);
-            }
-        }
-
-        g.update_state(100).unwrap(); // Last generation of ancestor deme
-        for (i, size) in g.parental_deme_sizes().unwrap().iter().enumerate() {
-            if i == 0 {
-                assert!(size > &0.0);
-            } else {
-                assert!(size <= &0.0);
-            }
-        }
-        for (i, size) in g.child_deme_sizes().unwrap().iter().enumerate() {
-            if i == 0 {
-                assert!(size <= &0.0);
-            } else {
-                assert!(size > &0.0);
-            }
-        }
-
-        g.update_state(101).unwrap(); // Last generation of ancestor deme
-        for (i, size) in g.parental_deme_sizes().unwrap().iter().enumerate() {
-            if i == 0 {
-                assert!(size <= &0.0);
-            } else {
-                assert!(size > &0.0);
-            }
-        }
-        for (i, size) in g.child_deme_sizes().unwrap().iter().enumerate() {
-            if i == 0 {
-                assert!(size <= &0.0);
-            } else {
-                assert!(size > &0.0);
-            }
         }
     }
 
@@ -1290,49 +1217,6 @@ demes:
 #[cfg(test)]
 mod test_deme_ancestors {
     use super::{test_functions::test_model_duration, *};
-
-    #[test]
-    fn test_three_deme_model() {
-        let demes_graph = graphs_for_testing::three_deme_model();
-        let mut graph =
-            ForwardGraph::new(demes_graph, 100, Some(demes::RoundTimeToInteger::F64)).unwrap();
-
-        {
-            graph.update_state(0).unwrap();
-            let deme = graph.parent_demes.get(0).unwrap();
-            assert!(deme.is_extant());
-            assert_eq!(deme.ancestors().len(), 0);
-        }
-
-        {
-            graph.update_state(100).unwrap();
-            let deme = graph.parent_demes.get(0).unwrap();
-            assert!(deme.is_extant());
-            assert_eq!(deme.ancestors().len(), 0);
-
-            for descendant_deme in [1_usize, 2] {
-                let deme = graph.child_demes.get(descendant_deme).unwrap();
-                assert!(deme.is_extant());
-                assert_eq!(deme.ancestors().len(), 1);
-                assert_eq!(deme.ancestors()[0], 0_usize);
-            }
-        }
-
-        // Runs to 149, which is last generation
-        // that has a child gen
-        for generation in 101_i32..150 {
-            graph.update_state(generation).unwrap();
-            let deme = graph.parent_demes.get(0).unwrap();
-            assert_eq!(deme.ancestors().len(), 0);
-
-            for descendant_deme in [1_usize, 2] {
-                let deme = graph.child_demes.get(descendant_deme).unwrap();
-                assert!(deme.is_extant());
-                assert_eq!(deme.ancestors().len(), 0);
-            }
-        }
-        test_model_duration(&mut graph);
-    }
 
     #[test]
     fn test_four_deme_model() {
