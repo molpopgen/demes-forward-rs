@@ -638,9 +638,12 @@ impl ForwardGraph {
         self.graph.num_demes()
     }
 
-    pub fn ancestry_proportions(&self, child_deme: usize) -> Option<&[f64]> {
+    pub fn ancestry_proportions(&self, offspring_deme: usize) -> Option<&[f64]> {
+        if offspring_deme >= self.num_demes_in_model() {
+            return None;
+        }
         if !self.child_demes.is_empty() {
-            let start = child_deme * self.child_demes.len();
+            let start = offspring_deme * self.child_demes.len();
             let stop = start + self.child_demes.len();
             Some(&self.ancestry_proportions.as_slice().unwrap()[start..stop])
         } else {

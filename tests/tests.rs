@@ -58,6 +58,11 @@ fn iterate_all_generations(graph: &mut demes_forward::ForwardGraph) -> ModelFirs
                 assert_eq!(parental_deme_sizes.len(), graph.num_demes_in_model());
                 assert_eq!(selfing_rates.len(), graph.num_demes_in_model());
                 assert_eq!(cloning_rates.len(), graph.num_demes_in_model());
+
+                // Stress-test that a deme > no. demes in model returns None
+                assert!(graph
+                    .ancestry_proportions(graph.num_demes_in_model())
+                    .is_none());
                 for i in 0..graph.num_demes_in_model() {
                     if selfing_rates[i] > 0.0 {
                         assert!(child_deme_sizes[i] > 0.0);
