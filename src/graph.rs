@@ -17,16 +17,8 @@ fn get_epoch_start_time_discrete_time_model(
     deme: &demes::Deme,
     epoch_index: usize,
 ) -> Result<demes::Time, DemesForwardError> {
-    // NOTE: is an error because
-    // * We are calling this when size_function != Constant.
-    // * The size_function for the first epoch of any deme
-    //   MUST BE Constant
     if epoch_index == 0 {
-        Err(DemesForwardError::InternalError(format!(
-            "attempted to get start_time from epoch {} of deme {}",
-            epoch_index,
-            deme.name()
-        )))
+        Ok(time_minus_1(deme.start_time()))
     } else {
         match deme.get_epoch(epoch_index - 1) {
             Some(epoch) => Ok(time_minus_1(epoch.end_time())),
@@ -415,7 +407,7 @@ impl ForwardGraph {
         match backwards_time {
             None => (),
             Some(time) => self.graph.migrations().iter().for_each(|migration| {
-                if time > migration.end_time() && time <= migration.start_time() {
+                if time > migration.end_time() && time < migration.start_time() {
                     self.migrations.push(migration.clone());
                 }
             }),
@@ -441,7 +433,10 @@ impl ForwardGraph {
     }
 
     // NOTE: the borrow checker "made" us go fully functional
-    fn update_ancestry_proportions_from_pulses(&mut self) -> Result<(), DemesForwardError> {
+    fn update_ancestry_proportions_from_pulses(
+        &mut self,
+        parental_generation_time: ForwardTime,
+    ) -> Result<(), DemesForwardError> {
         let mut sources = vec![];
         let mut proportions = vec![];
         self.pulses.iter().try_for_each(|pulse| {
@@ -450,8 +445,9 @@ impl ForwardGraph {
             let dest = *self.deme_to_index.get(pulse.dest()).unwrap();
             if !self.child_demes[dest].is_extant() {
                 return Err(DemesForwardError::InternalError(format!(
-                    "pulse dest deme {} is extinct",
-                    dest
+                    "pulse dest deme {} is extinct at (forward) time {:?}, which is backwards time {:?}",
+                    self.graph.demes()[dest].name(),
+                    parental_generation_time, self.model_times.convert(parental_generation_time),
                 )));
             }
             let mut sum = 0.0;
@@ -463,8 +459,9 @@ impl ForwardGraph {
                     let index: usize = *self.deme_to_index.get(source).unwrap();
                     if !self.parent_demes[index].is_extant() {
                         return Err(DemesForwardError::InternalError(format!(
-                            "pulse source deme {} is extinct",
-                            index
+                            "pulse source deme {} is extinct at (forward) time {:?}, which is backwards time {:?},",
+                            self.graph.demes()[index].name(),
+                            parental_generation_time, self.model_times.convert(parental_generation_time),
                         )));
                     }
                     sources.push(index);
@@ -488,21 +485,28 @@ impl ForwardGraph {
         Ok(())
     }
 
-    fn update_migration_matrix(&mut self) -> Result<(), DemesForwardError> {
+    fn update_migration_matrix(
+        &mut self,
+        parental_generation_time: ForwardTime,
+    ) -> Result<(), DemesForwardError> {
         self.migration_matrix.fill(0.0);
         self.migrations.iter().try_for_each(|migration| {
             let source = self.deme_to_index.get(migration.source()).unwrap();
             let dest = self.deme_to_index.get(migration.dest()).unwrap();
             if !self.parent_demes[*source].is_extant() {
                 return Err(DemesForwardError::InternalError(format!(
-                    "migration source deme {} is extinct",
-                    source
+                    "migration source deme {} is extinct at (forward) time {:?}, which is backwards time {:?}",
+                    self.graph.demes()[*source].name(),
+                    parental_generation_time,
+                    self.model_times.convert(parental_generation_time),
                 )));
             }
             if !self.child_demes[*dest].is_extant() {
                 return Err(DemesForwardError::InternalError(format!(
-                    "migration dest deme {} is extinct",
-                    source
+                    "migration dest deme {} is extinct at forward time {:?}, which is backwards time {:?}",
+                    self.graph.demes()[*dest].name(),
+                    parental_generation_time,
+                    self.model_times.convert(parental_generation_time),
                 )));
             }
             self.migration_matrix[[*dest, *source]] = migration.rate().into();
@@ -634,8 +638,8 @@ impl ForwardGraph {
         }
 
         self.initialize_ancestry_proportions();
-        self.update_ancestry_proportions_from_pulses()?;
-        self.update_migration_matrix()?;
+        self.update_ancestry_proportions_from_pulses(parental_generation_time)?;
+        self.update_migration_matrix(parental_generation_time)?;
         self.update_ancestry_proportions_from_migration_matrix();
         self.last_time_updated = Some(parental_generation_time);
 
@@ -1411,24 +1415,30 @@ migrations:
         // assert!(g.child_demes().is_none());
         // assert!(g.parental_demes().is_some());
 
-        // At forward time 200, we are at the
+        // One gen before everyone starts migrating
+        g.update_state(200).unwrap();
+        assert_eq!(g.migrations.len(), 0);
+        // At forward time 201, we are at the
         // start of the first migration epoch,
         // meaning that children born at 201 can be migrants
-        g.update_state(200).unwrap();
+        g.update_state(201).unwrap();
         assert_eq!(g.migrations.len(), 1);
 
         g.update_state(209).unwrap();
         assert_eq!(g.migrations.len(), 1);
 
         g.update_state(210).unwrap();
-        assert_eq!(g.migrations.len(), 2);
+        assert_eq!(g.migrations.len(), 1);
+
+        g.update_state(229).unwrap();
+        assert_eq!(g.migrations.len(), 1);
 
         g.update_state(230).unwrap();
         assert_eq!(g.migrations.len(), 0);
 
         // Symmetric mig, so 2 Asymmetric deals...
         g.update_state(235).unwrap();
-        assert_eq!(g.migrations.len(), 2);
+        assert_eq!(g.migrations.len(), 0);
     }
 }
 
